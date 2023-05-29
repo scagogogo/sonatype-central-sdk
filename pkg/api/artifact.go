@@ -2,8 +2,8 @@ package api
 
 import (
 	"context"
-	"github.com/scagogogo/sonatype-central-crawler/pkg/request"
-	"github.com/scagogogo/sonatype-central-crawler/pkg/response"
+	"github.com/scagogogo/sonatype-central-sdk/pkg/request"
+	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
 // SearchByArtifactId 根据GroupID列出这个组下面的artifact

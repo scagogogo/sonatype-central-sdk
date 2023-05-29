@@ -3,8 +3,8 @@ package api
 import (
 	"context"
 	"github.com/crawler-go-go-go/go-requests"
-	"github.com/scagogogo/sonatype-central-crawler/pkg/request"
-	"github.com/scagogogo/sonatype-central-crawler/pkg/response"
+	"github.com/scagogogo/sonatype-central-sdk/pkg/request"
+	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
 // SearchRequest 底层API，构造查询参数进行列表查询

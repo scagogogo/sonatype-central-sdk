@@ -1,4 +1,4 @@
-module github.com/scagogogo/sonatype-central-crawler
+module github.com/scagogogo/sonatype-central-sdk
 
 go 1.18
 

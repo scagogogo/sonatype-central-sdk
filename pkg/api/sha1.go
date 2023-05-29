@@ -2,8 +2,8 @@ package api
 
 import (
 	"context"
-	"github.com/scagogogo/sonatype-central-crawler/pkg/request"
-	"github.com/scagogogo/sonatype-central-crawler/pkg/response"
+	"github.com/scagogogo/sonatype-central-sdk/pkg/request"
+	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
 func SearchBySha1(ctx context.Context, sha1 string, limit int) ([]*response.Version, error) {

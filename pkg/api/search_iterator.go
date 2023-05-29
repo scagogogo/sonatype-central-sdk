@@ -5,7 +5,7 @@ import (
 	"errors"
 	"github.com/golang-infrastructure/go-iterator"
 	"github.com/golang-infrastructure/go-queue"
-	"github.com/scagogogo/sonatype-central-crawler/pkg/request"
+	"github.com/scagogogo/sonatype-central-sdk/pkg/request"
 )
 
 var (
