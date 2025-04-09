@@ -1,0 +1,2 @@
+# This file ensures that the badges directory is created.
+# GitHub Actions will generate badge images in this directory. 

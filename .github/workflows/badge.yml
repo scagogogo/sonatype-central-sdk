@@ -1,0 +1,33 @@
+name: Update Badges
+
+on:
+  workflow_run:
+    workflows: ["Go Tests"]
+    types:
+      - completed
+
+jobs:
+  update-badges:
+    name: Update Status Badges
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion != 'skipped'
+    
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+      
+      - name: Generate Build Status Badge
+        uses: emibcn/badge-action@v1
+        with:
+          label: 'build'
+          status: ${{ github.event.workflow_run.conclusion }}
+          color: ${{ github.event.workflow_run.conclusion == 'success' && 'green' || 'red' }}
+          path: '.github/badges/build-status.svg'
+      
+      - name: Commit and push badge
+        uses: EndBug/add-and-commit@v9
+        with:
+          author_name: GitHub Actions
+          author_email: actions@github.com
+          add: '.github/badges/build-status.svg'
+          message: 'docs: update build status badge' 

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+
 	"github.com/scagogogo/sonatype-central-sdk/pkg/request"
 	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )

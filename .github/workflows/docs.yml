@@ -1,0 +1,44 @@
+name: Generate Documentation
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+    tags:
+      - 'v*'
+
+jobs:
+  godoc:
+    name: Generate Go Docs
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+        cache: true
+
+    - name: Install godoc
+      run: go install golang.org/x/tools/cmd/godoc@latest
+
+    - name: Generate documentation
+      run: |
+        mkdir -p docs/api
+        go doc -all ./pkg/api > docs/api/api-reference.txt
+        go doc -all ./pkg/request > docs/api/request-reference.txt
+        go doc -all ./pkg/response > docs/api/response-reference.txt
+
+    - name: Commit and push documentation
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+      uses: EndBug/add-and-commit@v9
+      with:
+        author_name: GitHub Actions
+        author_email: actions@github.com
+        add: 'docs/api/*'
+        message: 'docs: update API documentation' 

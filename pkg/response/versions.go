@@ -10,3 +10,12 @@ type Version struct {
 	Ec         []string `json:"ec"`
 	Tags       []string `json:"tags"`
 }
+
+// VersionInfo 存储版本的详细信息
+type VersionInfo struct {
+	GroupId     string `json:"groupId"`
+	ArtifactId  string `json:"artifactId"`
+	Version     string `json:"version"`
+	LastUpdated string `json:"lastUpdated"`
+	Packaging   string `json:"packaging"`
+}

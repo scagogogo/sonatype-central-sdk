@@ -33,6 +33,9 @@ type Query struct {
 	Packaging string
 
 	Classifier string
+
+	// 自定义查询语句
+	CustomQuery string
 }
 
 func NewQuery() *Query {
@@ -84,8 +87,19 @@ func (x *Query) SetClassifier(classifier string) *Query {
 	return x
 }
 
+// SetCustomQuery 设置自定义查询语句
+func (x *Query) SetCustomQuery(query string) *Query {
+	x.CustomQuery = query
+	return x
+}
+
 func (x *Query) ToRequestParamValue() string {
 	conditions := make([]string, 0)
+
+	// 如果设置了自定义查询，直接使用自定义查询
+	if x.CustomQuery != "" {
+		return url.QueryEscape(x.CustomQuery)
+	}
 
 	if x.GroupId != "" {
 		conditions = append(conditions, "g:"+x.GroupId)

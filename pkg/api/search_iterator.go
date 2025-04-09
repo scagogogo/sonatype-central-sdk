@@ -3,9 +3,12 @@ package api
 import (
 	"context"
 	"errors"
+
 	"github.com/golang-infrastructure/go-iterator"
 	"github.com/golang-infrastructure/go-queue"
+
 	"github.com/scagogogo/sonatype-central-sdk/pkg/request"
+	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
 var (
@@ -29,6 +32,9 @@ type SearchIterator[Doc any] struct {
 
 	// 迭代器是否发生错误
 	err error
+
+	// 客户端引用
+	client *Client
 }
 
 var _ iterator.ErrorableIterator[any] = &SearchIterator[any]{}
@@ -42,6 +48,12 @@ func NewSearchIterator[Doc any](search *request.SearchRequest) *SearchIterator[D
 		nextStart: 0,
 		err:       nil,
 	}
+}
+
+// WithClient 设置客户端引用
+func (x *SearchIterator[Doc]) WithClient(client *Client) *SearchIterator[Doc] {
+	x.client = client
+	return x
 }
 
 func (x *SearchIterator[Doc]) ToSlice() ([]Doc, error) {
@@ -73,17 +85,26 @@ func (x *SearchIterator[Doc]) Value() Doc {
 }
 
 func (x *SearchIterator[Doc]) NextE() (bool, error) {
-
 	if x.err != nil {
 		return false, x.err
 	}
 
 	if x.total < 0 {
 		// 初始化
-		r, err := SearchRequest[Doc](context.Background(), x.search)
+		var r *response.Response[Doc]
+		var err error
+		if x.client != nil {
+			r, err = SearchRequestJsonDoc[Doc](x.client, context.Background(), x.search)
+		} else {
+			r, err = SearchRequestJsonDoc[Doc](nil, context.Background(), x.search)
+		}
 		if err != nil {
 			x.err = err
 			return false, err
+		}
+		if r == nil || r.ResponseBody == nil {
+			x.err = errors.New("empty response body")
+			return false, x.err
 		}
 		x.total = r.ResponseBody.NumFound
 		x.nextStart = x.nextStart + len(r.ResponseBody.Docs)
@@ -102,10 +123,20 @@ func (x *SearchIterator[Doc]) NextE() (bool, error) {
 			return false, nil
 		}
 		x.search.Start = x.nextStart
-		r, err := SearchRequest[Doc](context.Background(), x.search)
+		var r *response.Response[Doc]
+		var err error
+		if x.client != nil {
+			r, err = SearchRequestJsonDoc[Doc](x.client, context.Background(), x.search)
+		} else {
+			r, err = SearchRequestJsonDoc[Doc](nil, context.Background(), x.search)
+		}
 		if err != nil {
 			x.err = err
 			return false, err
+		}
+		if r == nil || r.ResponseBody == nil {
+			x.err = errors.New("empty response body")
+			return false, x.err
 		}
 		x.nextStart = x.nextStart + len(r.ResponseBody.Docs)
 		err = x.buff.Put(r.ResponseBody.Docs...)

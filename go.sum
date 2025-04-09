@@ -1,5 +1,7 @@
 github.com/crawler-go-go-go/go-requests v0.0.0-20230515105640-3b2d689d754e h1:aj/3os/N9M0HgL4zut9S1Hsw6V9NBzA2czwKIpNya+U=
 github.com/crawler-go-go-go/go-requests v0.0.0-20230515105640-3b2d689d754e/go.mod h1:DDPj4Q6CnYaSuw3r/5gOEUSConLaPTsuq4XTME7Dtls=
+github.com/crawler-go-go-go/go-requests v0.0.0-20230525030146-0f17843cff2c h1:Nz3j31d8MXriBW+629HK1AalQEv+HDgZEFGVGhhLZjw=
+github.com/crawler-go-go-go/go-requests v0.0.0-20230525030146-0f17843cff2c/go.mod h1:DDPj4Q6CnYaSuw3r/5gOEUSConLaPTsuq4XTME7Dtls=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -9,6 +11,8 @@ github.com/golang-infrastructure/go-iterator v0.0.0-20230524171120-56988a9b127c 
 github.com/golang-infrastructure/go-iterator v0.0.0-20230524171120-56988a9b127c/go.mod h1:Guf14ZZ7f7qiE0YpZbUkICcm7LWc3nrn3/gDObT//WI=
 github.com/golang-infrastructure/go-queue v0.0.0-20221128180429-701892f44bcc h1:+i4Y16ygfCIRKnEfwSd7cfQ+KvSMx/ALePIf8wTFRuc=
 github.com/golang-infrastructure/go-queue v0.0.0-20221128180429-701892f44bcc/go.mod h1:Ype8CrMpjePHOJq+wRoIN3hx10H/WQsZ5SNvHdiSsBQ=
+github.com/patrickmn/go-cache v2.1.0+incompatible h1:HRMgzkcYKYpi3C8ajMPV8OFXaaRUnok+kx1WdO15EQc=
+github.com/patrickmn/go-cache v2.1.0+incompatible/go.mod h1:3Qf8kWWT7OJRJbdiICTKqZju1ZixQ/KpMGzzAfe6+WQ=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
