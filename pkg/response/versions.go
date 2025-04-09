@@ -19,3 +19,17 @@ type VersionInfo struct {
 	LastUpdated string `json:"lastUpdated"`
 	Packaging   string `json:"packaging"`
 }
+
+// VersionWithMetadata 包含版本及其元数据信息
+type VersionWithMetadata struct {
+	Version     *Version     `json:"version"`
+	VersionInfo *VersionInfo `json:"versionInfo"`
+}
+
+// VersionComparison 比较两个版本的结果
+type VersionComparison struct {
+	Version1    string `json:"version1"`
+	Version2    string `json:"version2"`
+	V1Timestamp string `json:"v1Timestamp"`
+	V2Timestamp string `json:"v2Timestamp"`
+}
