@@ -11,4 +11,5 @@ type Artifact struct {
 	VersionCount  int      `json:"versionCount"`
 	Text          []string `json:"text"`
 	Ec            []string `json:"ec"`
+	Tags          []string `json:"tags,omitempty"`
 }
