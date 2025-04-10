@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/scagogogo/sonatype-central-sdk/pkg/request"
 	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
@@ -221,4 +222,288 @@ func containsTag(tags []string, tag string) bool {
 		}
 	}
 	return false
+}
+
+// CountArtifactsByTag 计算具有特定标签的构件数量
+// 参数:
+//   - ctx: 上下文，用于控制请求的生命周期
+//   - tag: 要计数的标签
+//
+// 返回:
+//   - int: 使用此标签的构件数量
+//   - error: 如果计数过程中发生错误
+func (c *Client) CountArtifactsByTag(ctx context.Context, tag string) (int, error) {
+	search := request.NewSearchRequest().SetQuery(request.NewQuery().SetTags(tag)).SetLimit(0)
+	result, err := SearchRequestJsonDoc[*response.Artifact](c, ctx, search)
+	if err != nil {
+		return 0, err
+	}
+	if result == nil || result.ResponseBody == nil {
+		return 0, errors.New("empty response body")
+	}
+	return result.ResponseBody.NumFound, nil
+}
+
+// CountVersions 计算指定构件的版本数量
+// 参数:
+//   - ctx: 上下文，用于控制请求的生命周期
+//   - groupId: 构件的groupId
+//   - artifactId: 构件的artifactId
+//
+// 返回:
+//   - int: 版本数量
+//   - error: 如果计数过程中发生错误
+func (c *Client) CountVersions(ctx context.Context, groupId, artifactId string) (int, error) {
+	search := request.NewSearchRequest().SetQuery(request.NewQuery().SetGroupId(groupId).SetArtifactId(artifactId)).SetCore("gav").SetLimit(0)
+	result, err := SearchRequestJsonDoc[*response.Version](c, ctx, search)
+	if err != nil {
+		return 0, err
+	}
+	if result == nil || result.ResponseBody == nil {
+		return 0, errors.New("empty response body")
+	}
+	return result.ResponseBody.NumFound, nil
+}
+
+// SearchByTagAndSortByPopularity 根据标签搜索并按流行度排序
+// 参数:
+//   - ctx: 上下文，用于控制请求的生命周期
+//   - tag: 要搜索的标签
+//   - limit: 最大返回结果数，如果小于等于0则返回所有结果
+//
+// 返回:
+//   - []*response.Artifact: 按流行度排序的构件列表
+//   - error: 如果搜索过程中发生错误
+func (c *Client) SearchByTagAndSortByPopularity(ctx context.Context, tag string, limit int) ([]*response.Artifact, error) {
+	artifacts, err := c.SearchByTag(ctx, tag, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	// 计算每个构件的"受欢迎度"（根据下载量或使用次数，这里简化为版本数量）
+	type ArtifactWithPopularity struct {
+		Artifact *response.Artifact
+		Score    int
+	}
+
+	var scoredArtifacts []ArtifactWithPopularity
+
+	// 获取每个构件的版本数量作为流行度指标
+	for _, artifact := range artifacts {
+		// 此处可以根据需要替换为其他流行度指标
+		versionCount, err := c.CountVersions(ctx, artifact.GroupId, artifact.ArtifactId)
+		if err == nil && versionCount > 0 {
+			scoredArtifacts = append(scoredArtifacts, ArtifactWithPopularity{
+				Artifact: artifact,
+				Score:    versionCount,
+			})
+		}
+	}
+
+	// 按流行度分数排序（降序）
+	sort.Slice(scoredArtifacts, func(i, j int) bool {
+		return scoredArtifacts[i].Score > scoredArtifacts[j].Score
+	})
+
+	// 提取排序后的构件
+	var result []*response.Artifact
+	for _, scoredArtifact := range scoredArtifacts {
+		result = append(result, scoredArtifact.Artifact)
+	}
+
+	// 限制结果数量
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+
+	return result, nil
+}
+
+// SearchByTagPrefix 使用标签前缀进行模糊搜索
+// 参数:
+//   - ctx: 上下文，用于控制请求的生命周期
+//   - prefix: 标签前缀
+//   - limit: 最大返回结果数，如果小于等于0则返回所有结果
+//
+// 返回:
+//   - []*response.Artifact: 匹配标签前缀的构件列表
+//   - error: 如果搜索过程中发生错误
+func (c *Client) SearchByTagPrefix(ctx context.Context, prefix string, limit int) ([]*response.Artifact, error) {
+	if prefix == "" {
+		return nil, errors.New("tag prefix cannot be empty")
+	}
+
+	// 使用自定义查询构建标签前缀搜索
+	customQuery := "tags:" + prefix + "*"
+	search := request.NewSearchRequest().SetQuery(request.NewQuery().SetCustomQuery(customQuery))
+
+	if limit > 0 {
+		search.SetLimit(limit)
+	}
+
+	result, err := SearchRequestJsonDoc[*response.Artifact](c, ctx, search)
+	if err != nil {
+		return nil, err
+	}
+	if result == nil || result.ResponseBody == nil {
+		return nil, errors.New("empty response body")
+	}
+	return result.ResponseBody.Docs, nil
+}
+
+// GetTagSuggestions 获取与指定标签相似或相关的标签建议
+// 参数:
+//   - ctx: 上下文，用于控制请求的生命周期
+//   - tag: 基础标签
+//   - limit: 最大返回结果数
+//
+// 返回:
+//   - []string: 标签建议列表
+//   - error: 如果处理过程中发生错误
+func (c *Client) GetTagSuggestions(ctx context.Context, tag string, limit int) ([]string, error) {
+	if tag == "" {
+		return nil, errors.New("tag cannot be empty")
+	}
+
+	// 1. 获取前缀匹配的标签
+	prefixArtifacts, err := c.SearchByTagPrefix(ctx, tag, 20)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. 获取相关标签
+	relatedTags, err := c.GetRelatedTags(ctx, tag, 50)
+	if err != nil {
+		return nil, err
+	}
+
+	// 合并前缀标签和相关标签
+	suggestions := make(map[string]int)
+
+	// 添加前缀匹配的标签
+	for _, artifact := range prefixArtifacts {
+		for _, artifactTag := range artifact.Tags {
+			if artifactTag != tag && strings.Contains(artifactTag, tag) {
+				suggestions[artifactTag] += 5 // 前缀匹配的标签权重更高
+			}
+		}
+	}
+
+	// 添加相关标签
+	for relatedTag, count := range relatedTags {
+		// 过滤掉过于罕见的标签（在结果中出现次数少于2的）
+		if count >= 2 {
+			suggestions[relatedTag] += count
+		}
+	}
+
+	// 将建议转换为排序列表
+	type TagWithScore struct {
+		Tag   string
+		Score int
+	}
+
+	var scoredTags []TagWithScore
+	for tag, score := range suggestions {
+		scoredTags = append(scoredTags, TagWithScore{Tag: tag, Score: score})
+	}
+
+	// 按分数排序
+	sort.Slice(scoredTags, func(i, j int) bool {
+		return scoredTags[i].Score > scoredTags[j].Score
+	})
+
+	// 提取排序后的标签
+	var result []string
+	for _, scoredTag := range scoredTags {
+		result = append(result, scoredTag.Tag)
+	}
+
+	// 限制结果数量
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+
+	return result, nil
+}
+
+// AnalyzeTagTrends 分析标签流行趋势，比较不同时期的使用情况
+// 参数:
+//   - ctx: 上下文，用于控制请求的生命周期
+//   - tags: 要分析的标签列表
+//   - periodMonths: 分析周期（月），用于比较当前与过去的使用情况
+//
+// 返回:
+//   - map[string]*response.TagTrend: 每个标签的趋势分析结果
+//   - error: 如果分析过程中发生错误
+func (c *Client) AnalyzeTagTrends(ctx context.Context, tags []string, periodMonths int) (map[string]*response.TagTrend, error) {
+	if len(tags) == 0 {
+		return nil, errors.New("at least one tag must be provided")
+	}
+
+	if periodMonths <= 0 {
+		periodMonths = 6 // 默认比较半年
+	}
+
+	results := make(map[string]*response.TagTrend)
+
+	// 对每个标签进行分析
+	for _, tag := range tags {
+		// 获取当前使用此标签的项目数量
+		currentCount, err := c.CountArtifactsByTag(ctx, tag)
+		if err != nil {
+			continue // 跳过此标签，继续处理其他标签
+		}
+
+		// 获取最新的使用此标签的项目，用于判断其活跃度
+		recentArtifacts, err := c.SearchByTag(ctx, tag, 50)
+		if err != nil || len(recentArtifacts) == 0 {
+			continue
+		}
+
+		// 计算平均活跃度（根据最近更新时间）
+		var totalActivity float64
+		var recentUpdates int
+		currentTime := float64(time.Now().UnixMilli()) // 当前时间毫秒数
+
+		for _, artifact := range recentArtifacts {
+			if artifact.Timestamp > 0 {
+				// 计算距离现在的时间（月）
+				monthsAgo := (currentTime - float64(artifact.Timestamp)) / (30 * 24 * 60 * 60 * 1000)
+				if monthsAgo < float64(periodMonths) {
+					recentUpdates++
+					// 活跃度评分：最近更新得分更高
+					activityScore := 1.0 - (monthsAgo / float64(periodMonths))
+					totalActivity += activityScore
+				}
+			}
+		}
+
+		// 计算平均活跃度（0-1之间的值）
+		averageActivity := 0.0
+		if recentUpdates > 0 {
+			averageActivity = totalActivity / float64(recentUpdates)
+		}
+
+		// 创建趋势对象
+		trend := &response.TagTrend{
+			Tag:                tag,
+			CurrentUsageCount:  currentCount,
+			ActivityScore:      averageActivity,
+			RecentUpdatesCount: recentUpdates,
+		}
+
+		// 计算趋势指标（上升/稳定/下降）
+		if averageActivity > 0.7 {
+			trend.Trend = "上升"
+		} else if averageActivity > 0.3 {
+			trend.Trend = "稳定"
+		} else {
+			trend.Trend = "下降"
+		}
+
+		results[tag] = trend
+	}
+
+	return results, nil
 }
