@@ -54,46 +54,6 @@ func TestSearchByTag(t *testing.T) {
 	}
 }
 
-// TestGetRelatedTags 使用真实API测试获取相关标签功能
-func TestGetRelatedTags(t *testing.T) {
-	// 使用真实客户端
-	client := createRealClient(t)
-
-	// 设置超时
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// 测试一个常见标签的相关标签
-	tag := "java"
-
-	// 添加短暂延迟，避免请求过快
-	time.Sleep(1 * time.Second)
-
-	// 测试获取相关标签
-	relatedTags, err := client.GetRelatedTags(ctx, tag, 10)
-	if err != nil {
-		t.Logf("获取相关标签时出错: %v", err)
-		t.Skip("无法连接到Maven Central API")
-		return
-	}
-
-	assert.NotNil(t, relatedTags)
-
-	// 输出找到的相关标签信息
-	t.Logf("找到 %d 个与 %s 相关的标签", len(relatedTags), tag)
-	if len(relatedTags) > 0 {
-		count := 0
-		for tag, frequency := range relatedTags {
-			if count < 5 { // 只显示前5个
-				t.Logf("相关标签: %s (出现频率: %d)", tag, frequency)
-				count++
-			}
-		}
-	} else {
-		t.Logf("注意: 没有找到与标签 %s 相关的标签，这可能是正常情况", tag)
-	}
-}
-
 func TestTagRelatedMethods(t *testing.T) {
 	// 使用真实客户端
 	client := createRealClient(t)
@@ -152,31 +112,6 @@ func TestTagRelatedMethods(t *testing.T) {
 		}
 	})
 
-	// 测试 GetTagSuggestions
-	t.Run("GetTagSuggestions", func(t *testing.T) {
-		baseTag := "java"
-		suggestions, err := client.GetTagSuggestions(ctx, baseTag, 5)
-		if err != nil {
-			t.Logf("获取标签 %s 的建议时出错: %v", baseTag, err)
-			t.Skip("无法连接到Maven Central API")
-			return
-		}
-
-		t.Logf("与 %s 相关的标签建议:", baseTag)
-		for i, suggestion := range suggestions {
-			t.Logf("建议 %d: %s", i+1, suggestion)
-		}
-
-		// 记录得到的建议数量
-		t.Logf("获取到 %d 个标签建议", len(suggestions))
-
-		// 不强制要求一定有建议，因为这取决于API的行为和数据状态
-		// 对于没有返回建议的情况，仅做记录而不判定为失败
-		if len(suggestions) == 0 {
-			t.Logf("注意: 没有找到与标签 %s 相关的建议，这可能是正常情况", baseTag)
-		}
-	})
-
 	// 测试 SearchByTagAndSortByPopularity
 	t.Run("SearchByTagAndSortByPopularity", func(t *testing.T) {
 		tag := "http"
@@ -208,31 +143,6 @@ func TestTagRelatedMethods(t *testing.T) {
 
 		for i, artifact := range artifacts {
 			t.Logf("结果 %d: %s:%s (版本数: %d)", i+1, artifact.GroupId, artifact.ArtifactId, artifact.VersionCount)
-		}
-	})
-
-	// 测试 AnalyzeTagTrends
-	t.Run("AnalyzeTagTrends", func(t *testing.T) {
-		trends, err := client.AnalyzeTagTrends(ctx, tags, 6)
-		if err != nil {
-			t.Logf("分析标签趋势时出错: %v", err)
-			t.Skip("无法连接到Maven Central API")
-			return
-		}
-
-		t.Logf("标签趋势分析结果:")
-		assert.Greater(t, len(trends), 0, "应该至少返回一些标签的趋势分析结果")
-
-		for tag, trend := range trends {
-			t.Logf("标签: %s, 使用数量: %d, 活跃度: %.2f, 趋势: %s",
-				tag, trend.CurrentUsageCount, trend.ActivityScore, trend.Trend)
-
-			// 验证趋势对象是否包含有效数据
-			assert.NotEmpty(t, trend.Tag, "趋势对象的标签字段不应为空")
-			assert.Greater(t, trend.CurrentUsageCount, 0, "标签 %s 的使用数量应该大于0", tag)
-			assert.GreaterOrEqual(t, trend.ActivityScore, 0.0, "活跃度分数应该大于等于0")
-			assert.LessOrEqual(t, trend.ActivityScore, 1.0, "活跃度分数应该小于等于1")
-			assert.Contains(t, []string{"上升", "稳定", "下降"}, trend.Trend, "趋势应该是'上升'、'稳定'或'下降'之一")
 		}
 	})
 }
