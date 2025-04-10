@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/patrickmn/go-cache"
+	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
 var (
@@ -40,33 +41,12 @@ type cachedResponse struct {
 // 内存缓存实例，全局共享，默认5分钟过期时间，10分钟清理一次
 var memoryCache = cache.New(5*time.Minute, 10*time.Minute)
 
-// APIError 表示API返回的错误
-type APIError struct {
-	StatusCode int
-	Message    string
-	Details    string
-}
-
-func (e *APIError) Error() string {
-	if e.Details != "" {
-		return fmt.Sprintf("API错误 [%d]: %s - %s", e.StatusCode, e.Message, e.Details)
-	}
-	return fmt.Sprintf("API错误 [%d]: %s", e.StatusCode, e.Message)
-}
-
-// ErrorResponse API错误响应的JSON结构
-type ErrorResponse struct {
-	Error   string `json:"error,omitempty"`
-	Message string `json:"message,omitempty"`
-	Status  int    `json:"status,omitempty"`
-}
-
 // handleHttpError 根据HTTP状态码处理错误
 func handleHttpError(statusCode int, responseBody []byte) error {
 	var message, details string
 
 	// 尝试解析错误响应
-	var errResp ErrorResponse
+	var errResp response.ErrorResponse
 	if err := json.Unmarshal(responseBody, &errResp); err == nil {
 		if errResp.Message != "" {
 			message = errResp.Message
@@ -84,47 +64,46 @@ func handleHttpError(statusCode int, responseBody []byte) error {
 	// 根据状态码处理特定错误
 	switch statusCode {
 	case http.StatusTooManyRequests:
-		return &APIError{
-			StatusCode: statusCode,
-			Message:    "请求频率过高，已被限流",
-			Details:    message,
+		return &response.APIError{
+			Code:    fmt.Sprintf("%d", statusCode),
+			Message: "请求频率过高，已被限流: " + message,
 		}
 	case http.StatusNotFound:
-		return &APIError{
-			StatusCode: statusCode,
-			Message:    "资源不存在",
-			Details:    message,
+		return &response.APIError{
+			Code:    fmt.Sprintf("%d", statusCode),
+			Message: "资源不存在: " + message,
 		}
 	case http.StatusUnauthorized:
-		return &APIError{
-			StatusCode: statusCode,
-			Message:    "未授权访问",
-			Details:    message,
+		return &response.APIError{
+			Code:    fmt.Sprintf("%d", statusCode),
+			Message: "未授权访问: " + message,
 		}
 	case http.StatusForbidden:
-		return &APIError{
-			StatusCode: statusCode,
-			Message:    "禁止访问",
-			Details:    message,
+		return &response.APIError{
+			Code:    fmt.Sprintf("%d", statusCode),
+			Message: "禁止访问: " + message,
 		}
 	case http.StatusBadRequest:
-		return &APIError{
-			StatusCode: statusCode,
-			Message:    "请求参数错误",
-			Details:    message,
+		return &response.APIError{
+			Code:    fmt.Sprintf("%d", statusCode),
+			Message: "请求参数错误: " + message,
 		}
 	default:
 		if statusCode >= 500 {
-			return &APIError{
-				StatusCode: statusCode,
-				Message:    "服务器错误",
-				Details:    message,
+			return &response.APIError{
+				Code:    fmt.Sprintf("%d", statusCode),
+				Message: "服务器错误: " + message,
 			}
 		}
-		return &APIError{
-			StatusCode: statusCode,
-			Message:    message,
-			Details:    details,
+
+		msg := message
+		if details != "" {
+			msg = message + " - " + details
+		}
+
+		return &response.APIError{
+			Code:    fmt.Sprintf("%d", statusCode),
+			Message: msg,
 		}
 	}
 }

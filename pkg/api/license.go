@@ -39,40 +39,8 @@ const (
 	LicenseCategoryNonCommercial LicenseCategory = "non-commercial" // 非商业许可证
 )
 
-// LicenseInfo 包含组件的许可证信息
-type LicenseInfo struct {
-	Name        string          `json:"name"`
-	Type        LicenseType     `json:"type"`
-	Category    LicenseCategory `json:"category"`
-	URL         string          `json:"url"`
-	Description string          `json:"description,omitempty"`
-}
-
-// LicenseConflict 表示两个许可证之间的冲突
-type LicenseConflict struct {
-	License1 LicenseType `json:"license1"`
-	License2 LicenseType `json:"license2"`
-	Reason   string      `json:"reason"`
-}
-
-// LicenseSummary 包含关于许可证使用情况的摘要
-type LicenseSummary struct {
-	TotalArtifacts       int                           `json:"totalArtifacts"`
-	LicenseDistribution  map[LicenseType]int           `json:"licenseDistribution"`
-	CategoryDistribution map[LicenseCategory]int       `json:"categoryDistribution"`
-	PotentialConflicts   []LicenseConflict             `json:"potentialConflicts,omitempty"`
-	ArtifactsByLicense   map[LicenseType][]ArtifactRef `json:"artifactsByLicense,omitempty"`
-}
-
-// ArtifactRef 表示Maven组件的引用
-type ArtifactRef struct {
-	GroupID    string `json:"groupId"`
-	ArtifactID string `json:"artifactId"`
-	Version    string `json:"version,omitempty"`
-}
-
 // GetComponentLicenses 获取一个组件的许可证信息
-func (c *Client) GetComponentLicenses(ctx context.Context, groupID, artifactID, version string) ([]LicenseInfo, error) {
+func (c *Client) GetComponentLicenses(ctx context.Context, groupID, artifactID, version string) ([]response.LicenseInfo, error) {
 	// 构建请求URL
 	q := fmt.Sprintf("g:%s+AND+a:%s+AND+v:%s",
 		url.QueryEscape(groupID), url.QueryEscape(artifactID), url.QueryEscape(version))
@@ -93,7 +61,7 @@ func (c *Client) GetComponentLicenses(ctx context.Context, groupID, artifactID, 
 	}
 
 	// 解析文档中的许可证信息
-	var licenses []LicenseInfo
+	var licenses []response.LicenseInfo
 	for _, doc := range resp.ResponseBody.Docs {
 		if licField, ok := doc["licenseList"]; ok {
 			if licList, ok := licField.([]interface{}); ok {
@@ -114,7 +82,7 @@ func (c *Client) GetComponentLicenses(ctx context.Context, groupID, artifactID, 
 }
 
 // SearchByLicenseType 搜索使用特定许可证类型的组件
-func (c *Client) SearchByLicenseType(ctx context.Context, licenseType LicenseType, limit int) ([]ArtifactRef, error) {
+func (c *Client) SearchByLicenseType(ctx context.Context, licenseType LicenseType, limit int) ([]response.ArtifactRef, error) {
 	// 构建查询请求
 	q := fmt.Sprintf("l:%s", url.QueryEscape(string(licenseType)))
 	query := request.NewQuery().SetCustomQuery(q)
@@ -130,15 +98,15 @@ func (c *Client) SearchByLicenseType(ctx context.Context, licenseType LicenseTyp
 	}
 
 	// 处理结果
-	artifacts := make([]ArtifactRef, 0, len(resp.ResponseBody.Docs))
+	artifacts := make([]response.ArtifactRef, 0, len(resp.ResponseBody.Docs))
 	for _, doc := range resp.ResponseBody.Docs {
 		groupID, _ := doc["g"].(string)
 		artifactID, _ := doc["a"].(string)
 		version, _ := doc["v"].(string)
 
-		artifacts = append(artifacts, ArtifactRef{
-			GroupID:    groupID,
-			ArtifactID: artifactID,
+		artifacts = append(artifacts, response.ArtifactRef{
+			GroupId:    groupID,
+			ArtifactId: artifactID,
 			Version:    version,
 		})
 	}
@@ -147,20 +115,20 @@ func (c *Client) SearchByLicenseType(ctx context.Context, licenseType LicenseTyp
 }
 
 // FindLicenseConflicts 检查组件依赖项中的许可证冲突
-func (c *Client) FindLicenseConflicts(ctx context.Context, artifacts []ArtifactRef) (*LicenseSummary, error) {
+func (c *Client) FindLicenseConflicts(ctx context.Context, artifacts []response.ArtifactRef) (*response.LicenseSummary, error) {
 	if len(artifacts) == 0 {
-		return &LicenseSummary{}, nil
+		return &response.LicenseSummary{}, nil
 	}
 
 	// 保存所有发现的许可证
-	foundLicenses := make(map[ArtifactRef][]LicenseInfo)
-	licenseDistribution := make(map[LicenseType]int)
-	categoryDistribution := make(map[LicenseCategory]int)
-	artifactsByLicense := make(map[LicenseType][]ArtifactRef)
+	foundLicenses := make(map[response.ArtifactRef][]response.LicenseInfo)
+	licenseDistribution := make(map[string]int)
+	categoryDistribution := make(map[string]int)
+	artifactsByLicense := make(map[string][]response.ArtifactRef)
 
 	// 获取每个组件的许可证信息
 	for _, artifact := range artifacts {
-		licenses, err := c.GetComponentLicenses(ctx, artifact.GroupID, artifact.ArtifactID, artifact.Version)
+		licenses, err := c.GetComponentLicenses(ctx, artifact.GroupId, artifact.ArtifactId, artifact.Version)
 		if err != nil {
 			continue // 跳过无法获取许可证信息的组件
 		}
@@ -174,7 +142,7 @@ func (c *Client) FindLicenseConflicts(ctx context.Context, artifacts []ArtifactR
 
 			// 更新按许可证分类的组件列表
 			if artifactsByLicense[license.Type] == nil {
-				artifactsByLicense[license.Type] = []ArtifactRef{}
+				artifactsByLicense[license.Type] = []response.ArtifactRef{}
 			}
 			artifactsByLicense[license.Type] = append(artifactsByLicense[license.Type], artifact)
 		}
@@ -183,7 +151,7 @@ func (c *Client) FindLicenseConflicts(ctx context.Context, artifacts []ArtifactR
 	// 检查许可证冲突
 	conflicts := findConflicts(foundLicenses)
 
-	return &LicenseSummary{
+	return &response.LicenseSummary{
 		TotalArtifacts:       len(artifacts),
 		LicenseDistribution:  licenseDistribution,
 		CategoryDistribution: categoryDistribution,
@@ -193,7 +161,7 @@ func (c *Client) FindLicenseConflicts(ctx context.Context, artifacts []ArtifactR
 }
 
 // GetPopularLicenses 获取按使用频率排序的流行许可证
-func (c *Client) GetPopularLicenses(ctx context.Context, limit int) (map[LicenseType]int, error) {
+func (c *Client) GetPopularLicenses(ctx context.Context, limit int) (map[string]int, error) {
 	// 使用facet查询获取许可证分布
 	query := request.NewQuery().SetCustomQuery("*:*")
 	searchReq := request.NewSearchRequest().
@@ -211,7 +179,7 @@ func (c *Client) GetPopularLicenses(ctx context.Context, limit int) (map[License
 	}
 
 	// 处理facet结果
-	licenses := make(map[LicenseType]int)
+	licenses := make(map[string]int)
 
 	if result.FacetCounts != nil && result.FacetCounts.FacetFields != nil {
 		if licenseField, ok := result.FacetCounts.FacetFields["l"]; ok {
@@ -219,7 +187,7 @@ func (c *Client) GetPopularLicenses(ctx context.Context, limit int) (map[License
 			for i := 0; i < len(licenseField); i += 2 {
 				if licName, ok := licenseField[i].(string); ok {
 					if count, ok := licenseField[i+1].(float64); ok {
-						licenses[LicenseType(licName)] = int(count)
+						licenses[licName] = int(count)
 					}
 				}
 			}
@@ -230,39 +198,44 @@ func (c *Client) GetPopularLicenses(ctx context.Context, limit int) (map[License
 }
 
 // 解析许可证字符串为LicenseInfo
-func parseLicense(licenseStr string) LicenseInfo {
+func parseLicense(licenseStr string) response.LicenseInfo {
 	// 简单实现，实际应用中可能需要更复杂的解析逻辑
 	licenseType := LicenseType(licenseStr)
+	licenseCategory := determineLicenseCategory(licenseType)
 
-	info := LicenseInfo{
-		Name: licenseStr,
-		Type: licenseType,
+	info := response.LicenseInfo{
+		Name:     licenseStr,
+		Type:     string(licenseType),
+		Category: string(licenseCategory),
+		URL:      fmt.Sprintf("https://opensource.org/licenses/%s", licenseType),
 	}
-
-	// 根据许可证类型确定类别
-	switch {
-	case strings.Contains(licenseStr, "GPL"):
-		info.Category = LicenseCategoryCopyleft
-	case strings.Contains(licenseStr, "LGPL"):
-		info.Category = LicenseCategoryWeakCopyleft
-	case strings.Contains(licenseStr, "MIT") ||
-		strings.Contains(licenseStr, "Apache") ||
-		strings.Contains(licenseStr, "BSD"):
-		info.Category = LicenseCategoryPermissive
-	default:
-		// 默认为宽松许可
-		info.Category = LicenseCategoryPermissive
-	}
-
-	// 设置许可证URL
-	info.URL = fmt.Sprintf("https://opensource.org/licenses/%s", licenseType)
 
 	return info
 }
 
+// 确定许可证类别
+func determineLicenseCategory(licenseType LicenseType) LicenseCategory {
+	licenseStr := string(licenseType)
+
+	// 根据许可证类型确定类别
+	switch {
+	case strings.Contains(licenseStr, "GPL"):
+		return LicenseCategoryCopyleft
+	case strings.Contains(licenseStr, "LGPL"):
+		return LicenseCategoryWeakCopyleft
+	case strings.Contains(licenseStr, "MIT") ||
+		strings.Contains(licenseStr, "Apache") ||
+		strings.Contains(licenseStr, "BSD"):
+		return LicenseCategoryPermissive
+	default:
+		// 默认为宽松许可
+		return LicenseCategoryPermissive
+	}
+}
+
 // 查找许可证之间的冲突
-func findConflicts(licenses map[ArtifactRef][]LicenseInfo) []LicenseConflict {
-	var conflicts []LicenseConflict
+func findConflicts(licenses map[response.ArtifactRef][]response.LicenseInfo) []response.LicenseConflict {
+	var conflicts []response.LicenseConflict
 
 	// 定义不兼容的许可证组合
 	incompatiblePairs := map[string]string{
@@ -284,8 +257,8 @@ func findConflicts(licenses map[ArtifactRef][]LicenseInfo) []LicenseConflict {
 					}
 
 					// 创建许可证对的唯一标识符
-					pairKey1 := string(license1.Type) + "_" + string(license2.Type)
-					pairKey2 := string(license2.Type) + "_" + string(license1.Type)
+					pairKey1 := license1.Type + "_" + license2.Type
+					pairKey2 := license2.Type + "_" + license1.Type
 
 					// 如果已经检查过这对许可证，则跳过
 					if checkedPairs[pairKey1] || checkedPairs[pairKey2] {
@@ -298,13 +271,13 @@ func findConflicts(licenses map[ArtifactRef][]LicenseInfo) []LicenseConflict {
 
 					// 检查是否有冲突
 					if reason, hasConflict := incompatiblePairs[pairKey1]; hasConflict {
-						conflicts = append(conflicts, LicenseConflict{
+						conflicts = append(conflicts, response.LicenseConflict{
 							License1: license1.Type,
 							License2: license2.Type,
 							Reason:   reason,
 						})
 					} else if reason, hasConflict := incompatiblePairs[pairKey2]; hasConflict {
-						conflicts = append(conflicts, LicenseConflict{
+						conflicts = append(conflicts, response.LicenseConflict{
 							License1: license2.Type,
 							License2: license1.Type,
 							Reason:   reason,
@@ -313,7 +286,7 @@ func findConflicts(licenses map[ArtifactRef][]LicenseInfo) []LicenseConflict {
 
 					// 检查GPL和非GPL许可证的冲突
 					if isGPL(license1.Type) && !isGPL(license2.Type) && !isCompatibleWithGPL(license2.Type) {
-						conflicts = append(conflicts, LicenseConflict{
+						conflicts = append(conflicts, response.LicenseConflict{
 							License1: license1.Type,
 							License2: license2.Type,
 							Reason:   fmt.Sprintf("%s不兼容%s", license1.Type, license2.Type),
@@ -328,21 +301,21 @@ func findConflicts(licenses map[ArtifactRef][]LicenseInfo) []LicenseConflict {
 }
 
 // 检查是否是GPL许可证
-func isGPL(license LicenseType) bool {
-	return strings.HasPrefix(string(license), "GPL")
+func isGPL(licenseStr string) bool {
+	return strings.HasPrefix(licenseStr, "GPL")
 }
 
 // 检查许可证是否与GPL兼容
-func isCompatibleWithGPL(license LicenseType) bool {
+func isCompatibleWithGPL(licenseStr string) bool {
 	// 以下许可证通常与GPL兼容
-	compatibleLicenses := map[LicenseType]bool{
-		LicenseTypeMIT:       true,
-		LicenseTypeBSD2:      true,
-		LicenseTypeBSD3:      true,
-		LicenseTypeLGPLv2:    true,
-		LicenseTypeLGPLv3:    true,
-		LicenseTypeUnlicense: true,
+	compatibleLicenses := map[string]bool{
+		string(LicenseTypeMIT):       true,
+		string(LicenseTypeBSD2):      true,
+		string(LicenseTypeBSD3):      true,
+		string(LicenseTypeLGPLv2):    true,
+		string(LicenseTypeLGPLv3):    true,
+		string(LicenseTypeUnlicense): true,
 	}
 
-	return compatibleLicenses[license]
+	return compatibleLicenses[licenseStr]
 }

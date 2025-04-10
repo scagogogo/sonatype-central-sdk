@@ -100,65 +100,53 @@ func (c *Client) doRequest(ctx context.Context, method, targetUrl string, body i
 	}
 	req.Header.Set("Accept", "application/json")
 
-	// 执行请求，带重试逻辑
-	var resp *http.Response
+	// 使用RetryWithBackoff执行带重试的请求
 	var responseBody []byte
-	maxRetries := c.maxRetries
-	backoff := float64(c.retryBackoffMs)
-
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			// 指数退避重试
-			sleepTime := time.Duration(backoff) * time.Millisecond
-			time.Sleep(sleepTime)
-			backoff = math.Min(backoff*2, 10000) // 最大10秒
-		}
-
-		// 检查上下文是否已取消
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-
-		// 执行请求
-		resp, err = c.httpClient.Do(req)
-		if err != nil {
-			if attempt < maxRetries {
-				continue // 重试
+	err = RetryWithBackoff(
+		ctx,
+		c.maxRetries,
+		c.retryBackoffMs,
+		2.0,   // backoffFactor
+		10000, // maxBackoffMs
+		func() error {
+			// 检查上下文是否已取消
+			if err := ctx.Err(); err != nil {
+				return err
 			}
-			return nil, fmt.Errorf("请求执行失败: %w", err)
-		}
 
-		// 读取响应体
-		responseBody, err = io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			if attempt < maxRetries {
-				continue // 重试
+			// 执行请求
+			resp, reqErr := c.httpClient.Do(req)
+			if reqErr != nil {
+				return reqErr
 			}
-			return nil, fmt.Errorf("读取响应失败: %w", err)
-		}
+			defer resp.Body.Close()
 
-		// 处理HTTP错误
-		if resp.StatusCode >= 400 {
-			err = handleHttpError(resp.StatusCode, responseBody)
-			if isRetriableError(resp.StatusCode) && attempt < maxRetries {
-				continue // 重试
+			// 读取响应体
+			body, readErr := io.ReadAll(resp.Body)
+			if readErr != nil {
+				return readErr
 			}
-			return responseBody, err
-		}
 
-		// 成功
-		break
-	}
+			// 处理HTTP错误
+			if resp.StatusCode >= 400 {
+				responseBody = body // 保存响应体以便外部函数可以使用
+				return handleHttpError(resp.StatusCode, body)
+			}
 
-	// 如果需要解析响应
-	if result != nil && len(responseBody) > 0 {
-		if err := json.Unmarshal(responseBody, result); err != nil {
-			return responseBody, fmt.Errorf("解析JSON响应失败: %w", err)
+			// 成功，保存响应并返回
+			responseBody = body
+			return nil
+		},
+	)
+
+	// 如果请求成功且需要解析响应
+	if err == nil && result != nil && len(responseBody) > 0 {
+		if jsonErr := json.Unmarshal(responseBody, result); jsonErr != nil {
+			return responseBody, fmt.Errorf("解析JSON响应失败: %w", jsonErr)
 		}
 	}
 
-	return responseBody, nil
+	return responseBody, err
 }
 
 // downloadWithCache 从仓库下载文件，支持缓存
@@ -186,64 +174,51 @@ func (c *Client) downloadWithCache(ctx context.Context, filePath string) ([]byte
 	// 设置请求头
 	req.Header.Set("User-Agent", "sonatype-central-sdk/1.0")
 
-	// 执行请求，带重试逻辑
-	var resp *http.Response
+	// 使用RetryWithBackoff执行带重试的请求
 	var responseBody []byte
-	maxRetries := c.maxRetries
-	backoff := float64(c.retryBackoffMs)
-
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			// 指数退避重试
-			sleepTime := time.Duration(backoff) * time.Millisecond
-			time.Sleep(sleepTime)
-			backoff = math.Min(backoff*2, 10000) // 最大10秒
-		}
-
-		// 检查上下文是否已取消
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-
-		// 执行请求
-		resp, err = c.httpClient.Do(req)
-		if err != nil {
-			if attempt < maxRetries {
-				continue // 重试
+	err = RetryWithBackoff(
+		ctx,
+		c.maxRetries,
+		c.retryBackoffMs,
+		2.0,   // backoffFactor
+		10000, // maxBackoffMs
+		func() error {
+			// 检查上下文是否已取消
+			if err := ctx.Err(); err != nil {
+				return err
 			}
-			return nil, fmt.Errorf("请求执行失败: %w", err)
-		}
 
-		// 读取响应体
-		responseBody, err = io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			if attempt < maxRetries {
-				continue // 重试
+			// 执行请求
+			resp, reqErr := c.httpClient.Do(req)
+			if reqErr != nil {
+				return reqErr
 			}
-			return nil, fmt.Errorf("读取响应失败: %w", err)
-		}
+			defer resp.Body.Close()
 
-		// 处理HTTP错误
-		if resp.StatusCode >= 400 {
-			err = handleHttpError(resp.StatusCode, responseBody)
-			if isRetriableError(resp.StatusCode) && attempt < maxRetries {
-				continue // 重试
+			// 读取响应体
+			body, readErr := io.ReadAll(resp.Body)
+			if readErr != nil {
+				return readErr
 			}
-			return nil, err
-		}
 
-		// 成功
-		break
-	}
+			// 处理HTTP错误
+			if resp.StatusCode >= 400 {
+				return handleHttpError(resp.StatusCode, body)
+			}
 
-	// 如果启用了缓存，将结果添加到缓存
-	if c.cacheEnabled {
+			// 成功，保存响应
+			responseBody = body
+			return nil
+		},
+	)
+
+	// 如果请求成功且启用了缓存，添加到缓存
+	if err == nil && c.cacheEnabled {
 		cacheKey := "download:" + targetUrl
 		addToCache(cacheKey, responseBody, c.cacheTTLSeconds)
 	}
 
-	return responseBody, nil
+	return responseBody, err
 }
 
 // isRetriableError 判断是否为可重试的错误

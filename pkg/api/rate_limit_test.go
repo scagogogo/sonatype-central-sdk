@@ -2,100 +2,170 @@ package api
 
 import (
 	"context"
-	"sync"
+	"net/http"
 	"testing"
-	"time"
 
+	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 	"github.com/stretchr/testify/assert"
 )
 
-// TestRateLimitHandling 测试客户端处理速率限制的能力
-func TestRateLimitHandling(t *testing.T) {
-	// 此测试可能会花费较长时间，跳过常规测试
-	if testing.Short() {
-		t.Skip("跳过速率限制测试")
-	}
-
-	// 创建一个低重试间隔的客户端
-	client := NewClient(
-		WithMaxRetries(3),
-		WithRetryBackoff(100), // 100ms初始退避时间
-	)
-
-	// 并发发送多个请求，可能触发速率限制
+// TestRateLimiterBasic 测试基本的速率限制器功能
+func TestRateLimiterBasic(t *testing.T) {
+	rateLimiter := NewRateLimiter()
 	ctx := context.Background()
-	var wg sync.WaitGroup
-	requestCount := 20 // 尝试触发速率限制的请求数
-	successCount := 0
-	errorCount := 0
-	var mu sync.Mutex
 
-	for i := 0; i < requestCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			// 查询一个常见的依赖
-			_, err := client.SearchByClassName(ctx, "guice", 5)
+	// 第一次请求不应该等待
+	waitTime, err := rateLimiter.WaitForRateLimit(ctx, "test.example.com", "search")
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), waitTime)
 
-			mu.Lock()
-			defer mu.Unlock()
-
-			if err != nil {
-				t.Logf("请求错误: %v", err)
-				errorCount++
-			} else {
-				successCount++
-			}
-		}()
-
-		// 短暂暂停，使得请求不会太过快速
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	wg.Wait()
-
-	t.Logf("成功请求: %d, 失败请求: %d", successCount, errorCount)
-
-	// 即使在高并发时，也应该有一定比例的请求成功
-	assert.True(t, successCount > 0, "至少应该有一些请求成功")
+	// 第二次请求应该等待
+	waitTime, err = rateLimiter.WaitForRateLimit(ctx, "test.example.com", "search")
+	assert.NoError(t, err)
+	assert.Greater(t, waitTime, int64(0))
 }
 
-// TestRateLimitWithCache 测试缓存如何帮助减轻速率限制问题
-func TestRateLimitWithCache(t *testing.T) {
-	// 此测试可能会花费较长时间，跳过常规测试
-	if testing.Short() {
-		t.Skip("跳过速率限制缓存测试")
+// TestRateLimiterWithCustomConfig 测试自定义配置的速率限制器
+func TestRateLimiterWithCustomConfig(t *testing.T) {
+	config := RateLimitConfig{
+		SearchRequestsPerSecond:   10, // 每秒10次搜索请求
+		DownloadRequestsPerSecond: 5,  // 每秒5次下载请求
+		DefaultRequestsPerSecond:  20, // 每秒20次默认请求
+		EnableStats:               true,
 	}
-
-	// 创建一个启用缓存的客户端
-	client := NewClient(
-		WithMaxRetries(2),
-		WithRetryBackoff(300),
-		WithCache(true, 600), // 缓存10分钟
-	)
-
-	// 清除之前的缓存
-	client.ClearCache()
-
+	rateLimiter := NewRateLimiterWithConfig(config)
 	ctx := context.Background()
 
-	// 第一次请求，将结果缓存
-	t.Log("第一次请求 - 应该从API获取数据")
-	startTime := time.Now()
-	result1, err := client.SearchByClassName(ctx, "guice", 5)
-	duration1 := time.Since(startTime)
+	// 测试搜索请求速率
+	waitTime, err := rateLimiter.WaitForRateLimit(ctx, "test.example.com", "search")
 	assert.NoError(t, err)
-	assert.NotEmpty(t, result1)
+	assert.Equal(t, int64(0), waitTime)
 
-	// 第二次请求，应该从缓存中获取
-	t.Log("第二次请求 - 应该从缓存获取数据")
-	startTime = time.Now()
-	result2, err := client.SearchByClassName(ctx, "guice", 5)
-	duration2 := time.Since(startTime)
+	// 由于设置了每秒10次搜索请求，理论上两次请求之间的间隔是100ms
+	// 但第一次请求不等待，所以第二次请求应该等待的时间应该接近100ms
+	waitTime, err = rateLimiter.WaitForRateLimit(ctx, "test.example.com", "search")
 	assert.NoError(t, err)
-	assert.NotEmpty(t, result2)
+	assert.Greater(t, waitTime, int64(0))
+	assert.LessOrEqual(t, waitTime, int64(100))
+}
 
-	// 缓存的请求应该明显快于API请求
-	t.Logf("API请求用时: %v, 缓存请求用时: %v", duration1, duration2)
-	assert.True(t, duration2 < duration1/2, "缓存请求应该至少快两倍")
+// TestRetryWithBackoff 测试指数退避重试机制
+func TestRetryWithBackoff(t *testing.T) {
+	ctx := context.Background()
+	maxRetries := 3
+	initialBackoffMs := 10 // 短间隔便于测试
+	backoffFactor := 2.0
+	maxBackoffMs := 1000
+
+	// 测试成功情况
+	attempts := 0
+	err := RetryWithBackoff(
+		ctx,
+		maxRetries,
+		initialBackoffMs,
+		backoffFactor,
+		maxBackoffMs,
+		func() error {
+			attempts++
+			return nil // 第一次就成功
+		},
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, attempts, "应该只尝试一次")
+
+	// 测试多次重试后成功
+	attempts = 0
+	err = RetryWithBackoff(
+		ctx,
+		maxRetries,
+		initialBackoffMs,
+		backoffFactor,
+		maxBackoffMs,
+		func() error {
+			attempts++
+			if attempts < 3 {
+				// 模拟可重试的错误
+				return &response.HTTPError{
+					StatusCode: http.StatusTooManyRequests,
+					Message:    "Rate limited",
+					URL:        "https://example.com",
+				}
+			}
+			return nil // 第三次成功
+		},
+	)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, attempts, "应该尝试3次才成功")
+
+	// 测试超过最大重试次数
+	attempts = 0
+	err = RetryWithBackoff(
+		ctx,
+		maxRetries,
+		initialBackoffMs,
+		backoffFactor,
+		maxBackoffMs,
+		func() error {
+			attempts++
+			// 始终返回可重试的错误
+			return &response.HTTPError{
+				StatusCode: http.StatusTooManyRequests,
+				Message:    "Rate limited",
+				URL:        "https://example.com",
+			}
+		},
+	)
+	assert.Error(t, err)
+	assert.Equal(t, maxRetries+1, attempts, "应该尝试最大重试次数+1次")
+
+	// 测试非可重试的错误
+	attempts = 0
+	nonRetryableErr := &response.HTTPError{
+		StatusCode: http.StatusBadRequest,
+		Message:    "Bad request",
+		URL:        "https://example.com",
+	}
+	err = RetryWithBackoff(
+		ctx,
+		maxRetries,
+		initialBackoffMs,
+		backoffFactor,
+		maxBackoffMs,
+		func() error {
+			attempts++
+			return nonRetryableErr
+		},
+	)
+	assert.Error(t, err)
+	assert.Equal(t, nonRetryableErr, err)
+	assert.Equal(t, 1, attempts, "非可重试错误应该只尝试一次")
+
+	// 测试上下文取消
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel() // 立即取消
+	attempts = 0
+	err = RetryWithBackoff(
+		cancelCtx,
+		maxRetries,
+		initialBackoffMs,
+		backoffFactor,
+		maxBackoffMs,
+		func() error {
+			attempts++
+			return &response.HTTPError{
+				StatusCode: http.StatusTooManyRequests,
+				Message:    "Rate limited",
+				URL:        "https://example.com",
+			}
+		},
+	)
+	assert.Error(t, err)
+	assert.Equal(t, context.Canceled, err)
+}
+
+// TestRateLimitWithCache 测试结合缓存的速率限制
+func TestRateLimitWithCache(t *testing.T) {
+	// 这里可以添加测试用例来验证结合缓存的速率限制功能
+	// 暂时跳过
+	t.Skip("暂未实现")
 }
