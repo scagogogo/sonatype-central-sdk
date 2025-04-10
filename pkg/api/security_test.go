@@ -345,17 +345,17 @@ func TestSecurityEdgeCases(t *testing.T) {
 	}
 
 	// 4. 添加对特定版本的批量安全扫描测试
-	artifactRefs := []*response.ArtifactRef{
+	testArtifacts := []*response.ArtifactRef{
 		{GroupId: "org.apache.logging.log4j", ArtifactId: "log4j-core", Version: "2.14.1"},
 		{GroupId: "org.springframework", ArtifactId: "spring-core", Version: "5.3.10"},
 	}
 
-	scanResults, err := client.BatchSecurityScan(ctx, artifactRefs)
+	scanResults, err := client.BatchSecurityScan(ctx, testArtifacts)
 	if err != nil {
 		t.Logf("跳过批量安全扫描测试: %v", err)
 	} else {
 		assert.NotNil(t, scanResults)
-		assert.Len(t, scanResults, len(artifactRefs))
+		assert.Len(t, scanResults, len(testArtifacts))
 
 		for _, result := range scanResults {
 			t.Logf("扫描结果 - %s:%s:%s, 安全评级: %s",

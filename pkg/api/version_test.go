@@ -378,3 +378,96 @@ func TestGetVersionsWithMetadataBasic(t *testing.T) {
 		t.Logf("获取到版本 %s 的元数据，最后更新时间: %s", version, versionInfo.LastUpdated)
 	}
 }
+
+// TestVersionsEdgeCases 测试版本API的边界情况
+func TestVersionsEdgeCases(t *testing.T) {
+	client := createRealClient(t)
+
+	// 设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	t.Run("不存在的构件", func(t *testing.T) {
+		// 生成一个肯定不存在的构件ID
+		randomArtifactId := fmt.Sprintf("nonexistent-artifact-%d", time.Now().UnixNano())
+		versions, err := client.ListVersions(ctx, "org.apache.commons", randomArtifactId, 10)
+
+		// 不应该返回错误，但结果应该为空
+		if err != nil {
+			t.Logf("查询不存在的构件返回错误: %v", err)
+			t.Skip("无法连接到Maven Central API")
+			return
+		}
+
+		assert.Empty(t, versions, "不存在的构件应返回空版本列表")
+	})
+
+	t.Run("限制为零的ListVersions", func(t *testing.T) {
+		// 测试limit为0的情况，应该调用IteratorVersions
+		versions, err := client.ListVersions(ctx, "junit", "junit", 0)
+		if err != nil {
+			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+			t.Skip("无法连接到Maven Central API")
+			return
+		}
+
+		// 应返回所有可用版本
+		assert.NotEmpty(t, versions, "limit为0时应返回所有版本")
+		t.Logf("使用limit=0获取到%d个junit版本", len(versions))
+	})
+
+	t.Run("限制为负数的ListVersions", func(t *testing.T) {
+		// 测试limit为负数的情况，应该调用IteratorVersions
+		versions, err := client.ListVersions(ctx, "junit", "junit", -1)
+		if err != nil {
+			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+			t.Skip("无法连接到Maven Central API")
+			return
+		}
+
+		// 应返回所有可用版本
+		assert.NotEmpty(t, versions, "limit为负数时应返回所有版本")
+		t.Logf("使用limit=-1获取到%d个junit版本", len(versions))
+	})
+
+	t.Run("不存在的版本信息", func(t *testing.T) {
+		// 测试获取不存在版本的信息
+		_, err := client.GetVersionInfo(ctx, "junit", "junit", "999.999.999")
+		assert.Error(t, err, "获取不存在的版本信息应返回错误")
+		assert.ErrorIs(t, err, ErrNotFound, "错误类型应为ErrNotFound")
+	})
+
+	t.Run("空过滤条件", func(t *testing.T) {
+		// 测试使用接受所有版本的过滤器
+		versions, err := client.FilterVersions(ctx, "junit", "junit", func(_ *response.Version) bool {
+			return true
+		})
+
+		if err != nil {
+			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+			t.Skip("无法连接到Maven Central API")
+			return
+		}
+
+		// 应返回与ListVersions相同的结果
+		allVersions, _ := client.ListVersions(ctx, "junit", "junit", 0)
+		if len(allVersions) > 0 {
+			assert.Equal(t, len(allVersions), len(versions), "接受所有版本的过滤器应返回所有版本")
+		}
+	})
+
+	t.Run("拒绝所有版本的过滤器", func(t *testing.T) {
+		// 测试拒绝所有版本的过滤器
+		versions, err := client.FilterVersions(ctx, "junit", "junit", func(_ *response.Version) bool {
+			return false
+		})
+
+		if err != nil {
+			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+			t.Skip("无法连接到Maven Central API")
+			return
+		}
+
+		assert.Empty(t, versions, "拒绝所有版本的过滤器应返回空列表")
+	})
+}

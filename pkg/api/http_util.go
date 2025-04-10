@@ -7,15 +7,9 @@ import (
 	"net/http"
 )
 
-// doRequest 执行 HTTP 请求并解析 JSON 响应
-func (c *Client) doRequest(req *http.Request, result interface{}) error {
-	// 执行请求
-	resp, err := c.executeWithRetry(req.Context(), req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
+// parseJsonResponse 解析HTTP响应中的JSON内容到指定结构体
+// 注意：此函数替代了原来的doRequest方法，避免命名冲突
+func parseJsonResponse(resp *http.Response, result interface{}) error {
 	// 检查状态码
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

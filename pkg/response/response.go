@@ -3,6 +3,7 @@ package response
 type Response[Doc any] struct {
 	ResponseHeader *ResponseHeader    `json:"responseHeader"`
 	ResponseBody   *ResponseBody[Doc] `json:"response"`
+	FacetCounts    *FacetCounts       `json:"facet_counts,omitempty"`
 }
 
 type ResponseHeader struct {
@@ -27,4 +28,11 @@ type ResponseBody[Doc any] struct {
 	NumFound int   `json:"numFound"`
 	Start    int   `json:"start"`
 	Docs     []Doc `json:"docs"`
+}
+
+// FacetCounts 表示聚合查询结果
+type FacetCounts struct {
+	FacetFields  map[string][]interface{} `json:"facet_fields,omitempty"`
+	FacetQueries map[string]int           `json:"facet_queries,omitempty"`
+	FacetDates   map[string]interface{}   `json:"facet_dates,omitempty"`
 }

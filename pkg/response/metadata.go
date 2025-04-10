@@ -16,7 +16,7 @@ type ArtifactMetadata struct {
 	Dependencies []*Dependency `json:"dependencies,omitempty"`
 
 	// 安全评分
-	SecurityRating *SecurityRating `json:"securityRating,omitempty"`
+	SecurityRating *MetadataSecurityRating `json:"securityRating,omitempty"`
 
 	// 许可证信息
 	Licenses []string `json:"licenses,omitempty"`
@@ -37,8 +37,8 @@ type Dependency struct {
 	Optional   bool   `json:"optional,omitempty"`
 }
 
-// SecurityRating 安全评分信息
-type SecurityRating struct {
+// MetadataSecurityRating 安全评分信息（元数据中的版本）
+type MetadataSecurityRating struct {
 	Score       float64           `json:"score,omitempty"`
 	VulnCount   int               `json:"vulnCount,omitempty"`
 	Severity    string            `json:"severity,omitempty"`
