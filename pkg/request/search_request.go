@@ -98,6 +98,11 @@ func (x *SearchRequest) AddCustomParam(key, value string) *SearchRequest {
 	return x
 }
 
+// SetRows 设置返回结果的最大数量（与SetLimit相同，为兼容旧代码保留）
+func (sr *SearchRequest) SetRows(rows int) *SearchRequest {
+	return sr.SetLimit(rows)
+}
+
 func (x *SearchRequest) ToRequestParams() string {
 	params := fmt.Sprintf("q=%s&rows=%d&wt=json&start=%d", x.Query.ToRequestParamValue(), x.Limit, x.Start)
 

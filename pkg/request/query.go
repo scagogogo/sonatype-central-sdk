@@ -87,6 +87,12 @@ func (x *Query) SetClassifier(classifier string) *Query {
 	return x
 }
 
+// SetText 设置全文搜索文本，不限定特定字段
+func (x *Query) SetText(text string) *Query {
+	x.CustomQuery = text
+	return x
+}
+
 // SetCustomQuery 设置自定义查询语句
 func (x *Query) SetCustomQuery(query string) *Query {
 	x.CustomQuery = query

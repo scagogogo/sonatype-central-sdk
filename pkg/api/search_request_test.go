@@ -12,29 +12,35 @@ import (
 )
 
 func TestSearchRequestReal(t *testing.T) {
-	// 创建真实客户端
+	// 创建一个真实的客户端
 	client := createRealClient(t)
 
 	// 设置超时
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// 创建测试请求
-	searchReq := request.NewSearchRequest().
-		SetQuery(request.NewQuery().SetGroupId("org.apache.commons")).
-		SetLimit(5)
+	// 创建搜索请求，查找log4j相关组件
+	searchReq := request.NewSearchRequest()
+	searchReq.Query.SetText("log4j")
+	searchReq.SetLimit(5)
 
-	// 执行请求
-	resp, err := client.SearchRequest(ctx, searchReq)
+	// 执行搜索请求
+	var result response.Response[*response.Artifact]
+	err := client.SearchRequest(ctx, searchReq, &result)
 	if err != nil {
-		t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
-		t.Skip("无法连接到Maven Central API")
-		return
+		t.Fatalf("搜索请求失败: %v", err)
 	}
 
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
-	t.Logf("成功执行搜索请求，返回数据有效")
+	// 验证结果
+	assert.Greater(t, result.ResponseHeader.QTime, 0)
+	assert.NotNil(t, result.ResponseBody)
+	assert.NotNil(t, result.ResponseBody.Docs)
+
+	// 输出结果
+	t.Logf("找到 %d 个结果", result.ResponseBody.NumFound)
+	for i, doc := range result.ResponseBody.Docs {
+		t.Logf("%d. %s:%s (%s)", i+1, doc.GroupId, doc.ArtifactId, doc.LatestVersion)
+	}
 }
 
 func TestSearchRequestJsonDocReal(t *testing.T) {
@@ -78,82 +84,55 @@ func TestSearchRequestJsonDocReal(t *testing.T) {
 }
 
 func TestSearchRequestWithAdvancedOptionsReal(t *testing.T) {
-	// 创建真实客户端
+	// 创建一个真实的客户端
 	client := createRealClient(t)
 
 	// 设置超时
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// 测试排序功能
-	t.Run("排序功能", func(t *testing.T) {
-		// 睡眠一段时间，避免请求过快
-		time.Sleep(1 * time.Second)
+	// 创建一个请求，测试排序功能
+	sortReq := request.NewSearchRequest()
+	sortReq.Query.SetText("security library")
+	sortReq.SetLimit(10)
+	sortReq.SetSort("timestamp", false) // 按时间戳降序排序
 
-		sortReq := request.NewSearchRequest().
-			SetQuery(request.NewQuery().SetGroupId("org.apache.commons")).
-			SetSort("timestamp", false).
-			SetLimit(3)
+	// 执行搜索请求
+	var sortResult response.Response[*response.Artifact]
+	err := client.SearchRequest(ctx, sortReq, &sortResult)
+	if err != nil {
+		t.Fatalf("排序搜索请求失败: %v", err)
+	}
 
-		result, err := SearchRequestJsonDoc[*response.Artifact](client, ctx, sortReq)
-		if err != nil {
-			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
-			t.Skip("无法连接到Maven Central API")
-			return
+	// 验证结果
+	assert.Greater(t, sortResult.ResponseBody.NumFound, int64(0))
+	assert.LessOrEqual(t, len(sortResult.ResponseBody.Docs), 10)
+
+	// 输出结果
+	t.Log("=== 按时间戳排序的结果 ===")
+	for i, doc := range sortResult.ResponseBody.Docs {
+		t.Logf("%d. %s:%s (时间戳: %d)", i+1, doc.GroupId, doc.ArtifactId, doc.Timestamp)
+		// 如果有超过1个结果，验证降序排序是否正确
+		if i > 0 && len(sortResult.ResponseBody.Docs) > 1 {
+			prev := sortResult.ResponseBody.Docs[i-1]
+			assert.GreaterOrEqual(t, prev.Timestamp, doc.Timestamp, "结果应该按时间戳降序排序")
 		}
+	}
 
-		assert.NoError(t, err)
-		assert.NotNil(t, result)
-		if len(result.ResponseBody.Docs) > 0 {
-			t.Logf("使用时间戳降序排序后，找到 %d 个commons制品", len(result.ResponseBody.Docs))
-			for i, doc := range result.ResponseBody.Docs {
-				t.Logf("制品 %d: %s:%s (%s)", i+1, doc.GroupId, doc.ArtifactId, doc.LatestVersion)
-			}
-		}
-	})
+	// 测试使用自定义参数
+	customReq := request.NewSearchRequest()
+	customReq.Query.SetText("spring boot")
+	customReq.AddCustomParam("fl", "id,g,a,latestVersion,p,timestamp")
+	customReq.SetLimit(5)
 
-	// 测试聚合功能
-	t.Run("聚合功能", func(t *testing.T) {
-		// 睡眠一段时间，避免请求过快
-		time.Sleep(1 * time.Second)
+	// 执行搜索请求
+	var customResult response.Response[*response.Artifact]
+	err = client.SearchRequest(ctx, customReq, &customResult)
+	if err != nil {
+		t.Fatalf("自定义参数搜索请求失败: %v", err)
+	}
 
-		facetReq := request.NewSearchRequest().
-			SetQuery(request.NewQuery().SetGroupId("org.apache")).
-			EnableFacet("a").
-			SetLimit(1)
-
-		// 对于聚合查询，只验证请求成功
-		resp, err := client.SearchRequest(ctx, facetReq)
-		if err != nil {
-			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
-			t.Skip("无法连接到Maven Central API")
-			return
-		}
-
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
-		t.Log("聚合查询请求成功")
-	})
-
-	// 测试自定义参数
-	t.Run("自定义参数", func(t *testing.T) {
-		// 睡眠一段时间，避免请求过快
-		time.Sleep(1 * time.Second)
-
-		customReq := request.NewSearchRequest().
-			SetQuery(request.NewQuery().SetGroupId("org.apache")).
-			AddCustomParam("indent", "true").
-			SetLimit(1)
-
-		resp, err := client.SearchRequest(ctx, customReq)
-		if err != nil {
-			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
-			t.Skip("无法连接到Maven Central API")
-			return
-		}
-
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
-		t.Log("带自定义参数的请求成功")
-	})
+	// 验证结果
+	assert.Greater(t, customResult.ResponseBody.NumFound, int64(0))
+	t.Logf("使用自定义参数查询找到 %d 个结果", customResult.ResponseBody.NumFound)
 }

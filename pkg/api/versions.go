@@ -4,27 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
+	"net/url"
 
 	"github.com/scagogogo/sonatype-central-sdk/pkg/request"
 	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
-// GetVersionInfo 获取特定版本的详细信息
+// GetVersionInfo 获取组件的版本信息
 func (c *Client) GetVersionInfo(ctx context.Context, groupId, artifactId, version string) (*response.VersionInfo, error) {
-	url := fmt.Sprintf("%s/v1/versions/%s/%s/%s", c.GetBaseURL(), groupId, artifactId, version)
+	// 构建URL
+	targetUrl := fmt.Sprintf("%s/solrsearch/select?q=g:%s+AND+a:%s+AND+v:%s&rows=1&wt=json",
+		c.baseURL,
+		url.QueryEscape(groupId),
+		url.QueryEscape(artifactId),
+		url.QueryEscape(version))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	// 创建响应对象
+	var result response.VersionInfo
+
+	// 执行请求
+	_, err := c.doRequest(ctx, "GET", targetUrl, nil, &result)
 	if err != nil {
 		return nil, err
 	}
 
-	var versionInfo response.VersionInfo
-	if err := c.doRequest(req, &versionInfo); err != nil {
-		return nil, err
-	}
-
-	return &versionInfo, nil
+	return &result, nil
 }
 
 // ListVersions 根据GroupID和artifactId列出下面的所有版本
