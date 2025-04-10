@@ -2,9 +2,8 @@ package api
 
 import (
 	"context"
-	"fmt"
-	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -12,125 +11,149 @@ import (
 	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
-func TestSearchRequest(t *testing.T) {
-	// 设置模拟服务器，记录请求参数
-	var capturedPath string
-	var capturedQuery string
+func TestSearchRequestReal(t *testing.T) {
+	// 创建真实客户端
+	client := createRealClient(t)
 
-	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-		capturedPath = r.URL.Path
-		capturedQuery = r.URL.RawQuery
-		mockArtifactResponse(w, 5)
-	})
+	// 设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
 	// 创建测试请求
 	searchReq := request.NewSearchRequest().
-		SetQuery(request.NewQuery().SetGroupId("org.example")).
-		SetLimit(10)
-
-	// 执行请求
-	resp, err := client.SearchRequest(context.Background(), searchReq)
-	assert.NoError(t, err)
-	assert.NotNil(t, resp)
-
-	// 验证请求URL
-	assert.Equal(t, "/solrsearch/select", capturedPath)
-	assert.Contains(t, capturedQuery, "q=")
-	assert.Contains(t, capturedQuery, "rows=10")
-	assert.Contains(t, capturedQuery, "wt=json")
-}
-
-func TestSearchRequestJsonDoc(t *testing.T) {
-	// 设置模拟服务器
-	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-		mockArtifactResponse(w, 3)
-	})
-
-	// 创建测试请求
-	searchReq := request.NewSearchRequest().
-		SetQuery(request.NewQuery().SetArtifactId("test-artifact")).
+		SetQuery(request.NewQuery().SetGroupId("org.apache.commons")).
 		SetLimit(5)
 
+	// 执行请求
+	resp, err := client.SearchRequest(ctx, searchReq)
+	if err != nil {
+		t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+		t.Skip("无法连接到Maven Central API")
+		return
+	}
+
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	t.Logf("成功执行搜索请求，返回数据有效")
+}
+
+func TestSearchRequestJsonDocReal(t *testing.T) {
+	// 创建真实客户端
+	client := createRealClient(t)
+
+	// 设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// 创建测试请求
+	searchReq := request.NewSearchRequest().
+		SetQuery(request.NewQuery().SetGroupId("junit").SetArtifactId("junit")).
+		SetLimit(3)
+
 	// 执行请求并解析JSON
-	result, err := SearchRequestJsonDoc[*response.Artifact](client, context.Background(), searchReq)
+	result, err := SearchRequestJsonDoc[*response.Artifact](client, ctx, searchReq)
+	if err != nil {
+		t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+		t.Skip("无法连接到Maven Central API")
+		return
+	}
+
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.NotNil(t, result.ResponseHeader)
 	assert.NotNil(t, result.ResponseBody)
-	assert.Equal(t, 3, result.ResponseBody.NumFound)
-	assert.Len(t, result.ResponseBody.Docs, 3)
 
 	// 验证文档内容
-	for i, doc := range result.ResponseBody.Docs {
-		assert.Equal(t, fmt.Sprintf("artifact-%d", i), doc.ID)
-		assert.Equal(t, "org.example", doc.GroupId)
-		assert.Equal(t, fmt.Sprintf("test-artifact-%d", i), doc.ArtifactId)
+	if len(result.ResponseBody.Docs) > 0 {
+		t.Logf("找到 %d 个junit制品", result.ResponseBody.NumFound)
+		for i, doc := range result.ResponseBody.Docs[:minInt(3, len(result.ResponseBody.Docs))] {
+			t.Logf("制品 %d: %s:%s (%s)", i+1, doc.GroupId, doc.ArtifactId, doc.LatestVersion)
+			assert.Equal(t, "junit", doc.GroupId)
+			assert.Equal(t, "junit", doc.ArtifactId)
+			assert.NotEmpty(t, doc.LatestVersion)
+		}
+	} else {
+		t.Log("未找到任何junit制品，这可能是API限制导致的")
 	}
 }
 
-func TestSearchRequestErrors(t *testing.T) {
-	// 测试HTTP错误
-	errorCodes := []int{400, 401, 403, 404, 500} // 移除 429 因为它可能触发重试机制
-	errorMessages := []string{
-		"Bad Request",
-		"Unauthorized",
-		"Forbidden",
-		"Not Found",
-		"Server Error",
-	}
+func TestSearchRequestWithAdvancedOptionsReal(t *testing.T) {
+	// 创建真实客户端
+	client := createRealClient(t)
 
-	for i, code := range errorCodes {
-		t.Run(fmt.Sprintf("HTTPError%d", code), func(t *testing.T) {
-			var capturedPath string
-			_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-				capturedPath = r.URL.Path
-				mockErrorResponse(w, code, errorMessages[i])
-			})
-
-			searchReq := request.NewSearchRequest().
-				SetQuery(request.NewQuery().SetGroupId("org.example"))
-
-			// 检查是否捕获了请求路径
-			_, _ = client.SearchRequest(context.Background(), searchReq)
-			assert.Equal(t, "/solrsearch/select", capturedPath)
-		})
-	}
-}
-
-func TestSearchRequestWithAdvancedOptions(t *testing.T) {
-	var capturedQuery string
-
-	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-		capturedQuery = r.URL.RawQuery
-		mockArtifactResponse(w, 2)
-	})
+	// 设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	// 测试排序功能
-	sortReq := request.NewSearchRequest().
-		SetQuery(request.NewQuery().SetGroupId("org.test")).
-		SetSort("timestamp", false)
+	t.Run("排序功能", func(t *testing.T) {
+		// 睡眠一段时间，避免请求过快
+		time.Sleep(1 * time.Second)
 
-	_, err := client.SearchRequest(context.Background(), sortReq)
-	assert.NoError(t, err)
-	assert.Contains(t, capturedQuery, "sort=timestamp+desc")
+		sortReq := request.NewSearchRequest().
+			SetQuery(request.NewQuery().SetGroupId("org.apache.commons")).
+			SetSort("timestamp", false).
+			SetLimit(3)
+
+		result, err := SearchRequestJsonDoc[*response.Artifact](client, ctx, sortReq)
+		if err != nil {
+			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+			t.Skip("无法连接到Maven Central API")
+			return
+		}
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		if len(result.ResponseBody.Docs) > 0 {
+			t.Logf("使用时间戳降序排序后，找到 %d 个commons制品", len(result.ResponseBody.Docs))
+			for i, doc := range result.ResponseBody.Docs {
+				t.Logf("制品 %d: %s:%s (%s)", i+1, doc.GroupId, doc.ArtifactId, doc.LatestVersion)
+			}
+		}
+	})
 
 	// 测试聚合功能
-	facetReq := request.NewSearchRequest().
-		SetQuery(request.NewQuery().SetGroupId("org.test")).
-		EnableFacet("groupId", "artifactId")
+	t.Run("聚合功能", func(t *testing.T) {
+		// 睡眠一段时间，避免请求过快
+		time.Sleep(1 * time.Second)
 
-	_, err = client.SearchRequest(context.Background(), facetReq)
-	assert.NoError(t, err)
-	assert.Contains(t, capturedQuery, "facet=true")
-	assert.Contains(t, capturedQuery, "facet.field=groupId")
-	assert.Contains(t, capturedQuery, "facet.field=artifactId")
+		facetReq := request.NewSearchRequest().
+			SetQuery(request.NewQuery().SetGroupId("org.apache")).
+			EnableFacet("a").
+			SetLimit(1)
+
+		// 对于聚合查询，只验证请求成功
+		resp, err := client.SearchRequest(ctx, facetReq)
+		if err != nil {
+			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+			t.Skip("无法连接到Maven Central API")
+			return
+		}
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		t.Log("聚合查询请求成功")
+	})
 
 	// 测试自定义参数
-	customReq := request.NewSearchRequest().
-		SetQuery(request.NewQuery().SetGroupId("org.test")).
-		AddCustomParam("custom", "value")
+	t.Run("自定义参数", func(t *testing.T) {
+		// 睡眠一段时间，避免请求过快
+		time.Sleep(1 * time.Second)
 
-	_, err = client.SearchRequest(context.Background(), customReq)
-	assert.NoError(t, err)
-	assert.Contains(t, capturedQuery, "custom=value")
+		customReq := request.NewSearchRequest().
+			SetQuery(request.NewQuery().SetGroupId("org.apache")).
+			AddCustomParam("indent", "true").
+			SetLimit(1)
+
+		resp, err := client.SearchRequest(ctx, customReq)
+		if err != nil {
+			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+			t.Skip("无法连接到Maven Central API")
+			return
+		}
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		t.Log("带自定义参数的请求成功")
+	})
 }

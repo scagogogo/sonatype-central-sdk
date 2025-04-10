@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/scagogogo/sonatype-central-sdk/pkg/request"
 	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
@@ -127,10 +126,11 @@ func (c *Client) CompareVersions(ctx context.Context, groupId, artifactId string
 func (c *Client) HasVersion(ctx context.Context, groupId, artifactId, version string) (bool, error) {
 	_, err := c.GetVersionInfo(ctx, groupId, artifactId, version)
 	if err != nil {
-		// 简单检查错误消息是否包含404或Not Found
-		if strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "not found") {
+		// 使用errors.Is检查是否是NotFound错误
+		if errors.Is(err, ErrNotFound) {
 			return false, nil
 		}
+		// 其他错误返回给调用者
 		return false, err
 	}
 	return true, nil

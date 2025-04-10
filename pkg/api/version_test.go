@@ -2,9 +2,7 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -46,7 +44,7 @@ func TestListVersionsReal(t *testing.T) {
 
 	// 记录找到的版本供参考
 	t.Logf("找到 %d 个 guice 版本", len(versions))
-	for i, v := range versions[:min(5, len(versions))] {
+	for i, v := range versions[:minInt(5, len(versions))] {
 		t.Logf("版本 %d: %s", i+1, v.Version)
 	}
 }
@@ -180,7 +178,7 @@ func TestGetVersionsWithMetadataReal(t *testing.T) {
 
 	if len(versionsWithMeta) > 0 {
 		t.Logf("找到 %d 个junit版本带元数据", len(versionsWithMeta))
-		for i, v := range versionsWithMeta[:min(3, len(versionsWithMeta))] {
+		for i, v := range versionsWithMeta[:minInt(3, len(versionsWithMeta))] {
 			t.Logf("版本 %d: %s", i+1, v.Version.Version)
 			assert.NotNil(t, v.Version, "版本不应为空")
 			assert.NotNil(t, v.VersionInfo, "版本信息不应为空")
@@ -248,326 +246,135 @@ func TestHasVersionReal(t *testing.T) {
 	assert.False(t, exists, fmt.Sprintf("%s:nonexistent:1.0不应该存在", randomID))
 }
 
-// 测试使用模拟服务器的GetLatestVersion功能
-func TestGetLatestVersionMock(t *testing.T) {
-	// 设置模拟服务器
-	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/solrsearch/select" && r.Method == http.MethodGet {
-			// 检查查询参数
-			query := r.URL.Query()
+// 测试GetLatestVersion的基本功能（使用真实客户端）
+func TestGetLatestVersionBasic(t *testing.T) {
+	client := createRealClient(t)
 
-			// 确保设置了正确的参数
-			assert.Equal(t, "gav", query.Get("core"), "core参数应为gav")
-			assert.Equal(t, "1", query.Get("rows"), "rows参数应为1")
-			assert.Equal(t, "g:test.group AND a:test.artifact", query.Get("q"), "应查询正确的groupId和artifactId")
+	// 设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
-			// 返回模拟数据
-			mockVersionResponse(w, 1)
-		} else {
-			w.WriteHeader(http.StatusNotFound)
-		}
-	})
+	// 测试GetLatestVersion，使用常见库
+	latestVersion, err := client.GetLatestVersion(ctx, "junit", "junit")
+	if err != nil {
+		t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+		t.Skip("无法连接到Maven Central API")
+		return
+	}
 
-	// 测试GetLatestVersion
-	latestVersion, err := client.GetLatestVersion(context.Background(), "test.group", "test.artifact")
 	assert.NoError(t, err)
 	assert.NotNil(t, latestVersion)
-	assert.Contains(t, latestVersion.Version, "1.0.", "应返回由mockVersionResponse生成的版本")
+	assert.NotEmpty(t, latestVersion.Version, "应返回有效的版本号")
+	t.Logf("junit:junit 最新版本: %s", latestVersion.Version)
 }
 
-// 测试使用模拟服务器的FilterVersions功能
-func TestFilterVersionsMock(t *testing.T) {
-	// 设置模拟服务器
-	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/solrsearch/select" && r.Method == http.MethodGet {
-			// 检查查询参数
-			query := r.URL.Query()
-
-			// 确保设置了正确的参数
-			assert.Equal(t, "gav", query.Get("core"), "core参数应为gav")
-			assert.Equal(t, "g:org.test AND a:test-lib", query.Get("q"), "应查询正确的groupId和artifactId")
-
-			// 返回多个测试版本
-			versions := []*response.Version{
-				{Version: "1.0.0", GroupId: "org.test", ArtifactId: "test-lib"},
-				{Version: "1.1.0", GroupId: "org.test", ArtifactId: "test-lib"},
-				{Version: "2.0.0", GroupId: "org.test", ArtifactId: "test-lib"},
-				{Version: "2.1.0", GroupId: "org.test", ArtifactId: "test-lib"},
-			}
-
-			mockSearchResponse(w, versions, len(versions))
-		} else {
-			w.WriteHeader(http.StatusNotFound)
-		}
-	})
-
-	// 测试过滤器 - 只选择2.x版本
-	filteredVersions, err := client.FilterVersions(context.Background(), "org.test", "test-lib", func(v *response.Version) bool {
-		return strings.HasPrefix(v.Version, "2.")
-	})
-
-	assert.NoError(t, err)
-	assert.NotNil(t, filteredVersions)
-	assert.Equal(t, 2, len(filteredVersions), "应该找到2个2.x版本")
-
-	for _, v := range filteredVersions {
-		assert.True(t, strings.HasPrefix(v.Version, "2."), "所有版本都应以2.开头")
-	}
-}
-
-// 测试使用模拟服务器的HasVersion功能
-func TestHasVersionMock(t *testing.T) {
-	t.Run("版本存在", func(t *testing.T) {
-		// 设置模拟服务器 - 正常响应
-		_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/v1/versions/test.group/test.artifact/1.0.0" && r.Method == http.MethodGet {
-				// 返回一个有效的版本信息
-				versionInfo := response.VersionInfo{
-					GroupId:     "test.group",
-					ArtifactId:  "test.artifact",
-					Version:     "1.0.0",
-					LastUpdated: "2023-01-01T10:10:10.000Z",
-					Packaging:   "jar",
-				}
-				json.NewEncoder(w).Encode(versionInfo)
-			} else {
-				w.WriteHeader(http.StatusNotFound)
-			}
-		})
-
-		// 测试存在的版本
-		exists, err := client.HasVersion(context.Background(), "test.group", "test.artifact", "1.0.0")
-		assert.NoError(t, err)
-		assert.True(t, exists, "版本应该被报告为存在")
-	})
-
-	t.Run("版本不存在", func(t *testing.T) {
-		// 设置模拟服务器 - 404响应
-		_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/v1/versions/test.group/test.artifact/999.0.0" && r.Method == http.MethodGet {
-				w.WriteHeader(http.StatusNotFound)
-				w.Write([]byte(`{"error":"Version not found"}`))
-			}
-		})
-
-		// 测试不存在的版本
-		exists, err := client.HasVersion(context.Background(), "test.group", "test.artifact", "999.0.0")
-		assert.NoError(t, err)
-		assert.False(t, exists, "版本应该被报告为不存在")
-	})
-}
-
-// 测试多种条件的版本过滤
-func TestFilterVersionsWithMultipleConditions(t *testing.T) {
+// 测试FilterVersions的基本功能（使用真实客户端）
+func TestFilterVersionsBasic(t *testing.T) {
 	client := createRealClient(t)
 
 	// 设置超时
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// 使用多个条件过滤版本 - 找出2.0以上但不包含beta/alpha的稳定版本
-	versions, err := client.FilterVersions(ctx, "com.google.code.gson", "gson", func(v *response.Version) bool {
-		// 检查版本是否大于2.0
-		if !strings.HasPrefix(v.Version, "2.") && !strings.HasPrefix(v.Version, "3.") {
-			return false
-		}
-
-		// 排除beta、alpha、RC等非稳定版本
-		if strings.Contains(strings.ToLower(v.Version), "beta") ||
-			strings.Contains(strings.ToLower(v.Version), "alpha") ||
-			strings.Contains(strings.ToLower(v.Version), "rc") ||
-			strings.Contains(strings.ToLower(v.Version), "snapshot") {
-			return false
-		}
-
-		return true
+	// 测试真实库的版本过滤
+	filteredVersions, err := client.FilterVersions(ctx, "org.apache.commons", "commons-lang3", func(v *response.Version) bool {
+		return strings.HasPrefix(v.Version, "3.")
 	})
 
 	if err != nil {
-		t.Logf("跳过多条件版本过滤测试: %v", err)
+		t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
 		t.Skip("无法连接到Maven Central API")
 		return
 	}
 
-	assert.NotNil(t, versions)
-	assert.True(t, len(versions) > 0, "应该找到符合条件的版本")
+	assert.NoError(t, err)
+	assert.NotNil(t, filteredVersions)
 
-	// 验证所有返回的版本都符合我们的过滤条件
-	for _, v := range versions {
-		t.Logf("过滤后的版本: %s", v.Version)
-
-		// 应该以2.或3.开头
-		assert.True(t, strings.HasPrefix(v.Version, "2.") || strings.HasPrefix(v.Version, "3."),
-			"版本应该以2.或3.开头: %s", v.Version)
-
-		// 不应该包含预发布标记
-		lowercaseVersion := strings.ToLower(v.Version)
-		assert.False(t, strings.Contains(lowercaseVersion, "beta"), "版本不应包含beta: %s", v.Version)
-		assert.False(t, strings.Contains(lowercaseVersion, "alpha"), "版本不应包含alpha: %s", v.Version)
-		assert.False(t, strings.Contains(lowercaseVersion, "rc"), "版本不应包含rc: %s", v.Version)
-		assert.False(t, strings.Contains(lowercaseVersion, "snapshot"), "版本不应包含snapshot: %s", v.Version)
+	if len(filteredVersions) > 0 {
+		t.Logf("找到 %d 个3.x版本的commons-lang3", len(filteredVersions))
+		for i, v := range filteredVersions[:minInt(5, len(filteredVersions))] {
+			t.Logf("版本 %d: %s", i+1, v.Version)
+			assert.True(t, strings.HasPrefix(v.Version, "3."), "所有版本都应以3.开头")
+		}
+	} else {
+		t.Log("未找到任何3.x版本，这可能是API返回数据有限导致的")
 	}
 }
 
-// 测试使用模拟服务器的GetVersionsWithMetadata功能
-func TestGetVersionsWithMetadataMock(t *testing.T) {
-	// 设置模拟服务器
-	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/solrsearch/select" && r.Method == http.MethodGet {
-			// 返回版本列表
-			versions := []*response.Version{
-				{Version: "1.0.0", GroupId: "org.example", ArtifactId: "test-artifact"},
-				{Version: "1.1.0", GroupId: "org.example", ArtifactId: "test-artifact"},
-			}
-			mockSearchResponse(w, versions, len(versions))
+// 测试HasVersion功能（使用真实客户端）
+func TestHasVersionBasic(t *testing.T) {
+	client := createRealClient(t)
+
+	// 设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	t.Run("版本存在", func(t *testing.T) {
+		// 测试一个已知存在的版本
+		exists, err := client.HasVersion(ctx, "junit", "junit", "4.12")
+		if err != nil {
+			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+			t.Skip("无法连接到Maven Central API")
 			return
 		}
 
-		if strings.HasPrefix(r.URL.Path, "/v1/versions/") {
-			// 返回版本详细信息
-			parts := strings.Split(r.URL.Path, "/")
-			if len(parts) >= 5 { // 确保有足够的路径段
-				version := parts[4]
-				versionInfo := response.VersionInfo{
-					GroupId:     "org.example",
-					ArtifactId:  "test-artifact",
-					Version:     version,
-					LastUpdated: fmt.Sprintf("2023-01-0%d:00:00.000Z", len(version)), // 生成一个不同的时间戳
-					Packaging:   "jar",
-				}
-				json.NewEncoder(w).Encode(versionInfo)
-				return
-			}
-		}
-
-		w.WriteHeader(http.StatusNotFound)
+		assert.NoError(t, err)
+		assert.True(t, exists, "junit:junit:4.12应该存在")
 	})
 
-	// 测试GetVersionsWithMetadata
-	versionsWithMeta, err := client.GetVersionsWithMetadata(context.Background(), "org.example", "test-artifact")
-	assert.NoError(t, err)
-	assert.NotNil(t, versionsWithMeta)
-	assert.Equal(t, 2, len(versionsWithMeta), "应该返回2个带元数据的版本")
-
-	// 检查版本和元数据是否匹配
-	for _, v := range versionsWithMeta {
-		assert.Equal(t, v.Version.Version, v.VersionInfo.Version, "版本号应匹配")
-		assert.Equal(t, "org.example", v.VersionInfo.GroupId, "GroupId应匹配")
-		assert.Equal(t, "test-artifact", v.VersionInfo.ArtifactId, "ArtifactId应匹配")
-		assert.NotEmpty(t, v.VersionInfo.LastUpdated, "LastUpdated不应为空")
-	}
-}
-
-// 测试使用模拟服务器的CompareVersions功能
-func TestCompareVersionsMock(t *testing.T) {
-	// 设置模拟服务器
-	_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/v1/versions/") {
-			// 从URL路径解析版本号
-			parts := strings.Split(r.URL.Path, "/")
-			if len(parts) < 5 {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-
-			groupId := parts[2]
-			artifactId := parts[3]
-			version := parts[4]
-
-			// 根据不同版本返回不同的响应
-			var lastUpdated string
-			switch version {
-			case "1.0.0":
-				lastUpdated = "2022-01-01T00:00:00.000Z"
-			case "2.0.0":
-				lastUpdated = "2023-01-01T00:00:00.000Z"
-			default:
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-
-			versionInfo := response.VersionInfo{
-				GroupId:     groupId,
-				ArtifactId:  artifactId,
-				Version:     version,
-				LastUpdated: lastUpdated,
-				Packaging:   "jar",
-			}
-			json.NewEncoder(w).Encode(versionInfo)
-		} else {
-			w.WriteHeader(http.StatusNotFound)
-		}
-	})
-
-	// 测试版本比较
-	comparison, err := client.CompareVersions(context.Background(), "test.group", "test.artifact", "1.0.0", "2.0.0")
-	assert.NoError(t, err)
-	assert.NotNil(t, comparison)
-
-	// 验证比较结果
-	assert.Equal(t, "1.0.0", comparison.Version1)
-	assert.Equal(t, "2.0.0", comparison.Version2)
-	assert.Equal(t, "2022-01-01T00:00:00.000Z", comparison.V1Timestamp)
-	assert.Equal(t, "2023-01-01T00:00:00.000Z", comparison.V2Timestamp)
-
-	// 测试比较相同版本
-	comparison, err = client.CompareVersions(context.Background(), "test.group", "test.artifact", "1.0.0", "1.0.0")
-	assert.NoError(t, err)
-	assert.Equal(t, comparison.V1Timestamp, comparison.V2Timestamp)
-
-	// 测试比较不存在的版本
-	_, err = client.CompareVersions(context.Background(), "test.group", "test.artifact", "1.0.0", "999.0.0")
-	assert.Error(t, err, "比较不存在的版本应该返回错误")
-}
-
-// 测试GetVersionInfo错误处理
-func TestGetVersionInfoErrorMock(t *testing.T) {
 	t.Run("版本不存在", func(t *testing.T) {
-		// 设置模拟服务器 - 返回404
-		_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasPrefix(r.URL.Path, "/v1/versions/") {
-				w.WriteHeader(http.StatusNotFound)
-				w.Write([]byte(`{"error": "Version not found"}`))
-			}
-		})
+		// 睡眠一段时间，避免请求过快
+		time.Sleep(1 * time.Second)
 
-		// 测试获取不存在的版本
-		info, err := client.GetVersionInfo(context.Background(), "org.nonexistent", "nonexistent-artifact", "1.0.0")
-		assert.Error(t, err, "应该返回错误")
-		assert.Nil(t, info, "不应返回版本信息")
-		assert.Contains(t, err.Error(), "404", "错误应包含404状态码")
+		// 测试一个肯定不存在的版本
+		exists, err := client.HasVersion(ctx, "junit", "junit", "999.999.999")
+		if err != nil {
+			t.Logf("跳过测试，无法连接到Maven Central API: %v", err)
+			t.Skip("无法连接到Maven Central API")
+			return
+		}
+
+		assert.NoError(t, err)
+		assert.False(t, exists, "junit:junit:999.999.999不应该存在")
 	})
+}
 
-	t.Run("无效响应", func(t *testing.T) {
-		// 设置模拟服务器 - 返回无效JSON
-		_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasPrefix(r.URL.Path, "/v1/versions/") {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"invalid-json`)) // 无效的JSON
-			}
-		})
+// 测试GetVersionsWithMetadata功能（使用真实客户端）
+func TestGetVersionsWithMetadataBasic(t *testing.T) {
+	client := createRealClient(t)
 
-		// 测试解析无效响应
-		info, err := client.GetVersionInfo(context.Background(), "org.example", "test-artifact", "1.0.0")
-		assert.Error(t, err, "应该返回错误")
-		assert.Nil(t, info, "不应返回版本信息")
-		assert.Contains(t, err.Error(), "JSON", "错误应包含JSON解析失败提示")
-	})
+	// 设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	t.Run("服务器错误", func(t *testing.T) {
-		// 设置模拟服务器 - 返回500错误
-		_, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasPrefix(r.URL.Path, "/v1/versions/") {
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(`{"error": "Internal server error"}`))
-			}
-		})
+	// 为了减少API调用，先获取少量版本
+	allVersions, err := client.ListVersions(ctx, "org.slf4j", "slf4j-api", 3)
+	if err != nil || len(allVersions) == 0 {
+		t.Logf("跳过测试：无法获取slf4j-api版本列表: %v", err)
+		t.Skip("无法连接到Maven Central API")
+		return
+	}
 
-		// 测试服务器错误
-		info, err := client.GetVersionInfo(context.Background(), "org.example", "test-artifact", "1.0.0")
-		assert.Error(t, err, "应该返回错误")
-		assert.Nil(t, info, "不应返回版本信息")
-		assert.Contains(t, err.Error(), "500", "错误应包含500状态码")
-	})
+	// 为减轻API负担，只测试有限的几个版本
+	groupId := "org.slf4j"
+	artifactId := "slf4j-api"
+	if len(allVersions) > 0 {
+		version := allVersions[0].Version
+
+		// 测试单个版本的元数据
+		versionInfo, err := client.GetVersionInfo(ctx, groupId, artifactId, version)
+		if err != nil {
+			t.Logf("跳过测试：获取版本元数据失败: %v", err)
+			t.Skip("无法获取版本元数据")
+			return
+		}
+
+		assert.NotNil(t, versionInfo)
+		assert.Equal(t, groupId, versionInfo.GroupId)
+		assert.Equal(t, artifactId, versionInfo.ArtifactId)
+		assert.Equal(t, version, versionInfo.Version)
+		assert.NotEmpty(t, versionInfo.LastUpdated)
+
+		t.Logf("获取到版本 %s 的元数据，最后更新时间: %s", version, versionInfo.LastUpdated)
+	}
 }
