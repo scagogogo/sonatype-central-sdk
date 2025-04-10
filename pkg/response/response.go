@@ -1,9 +1,10 @@
 package response
 
 type Response[Doc any] struct {
-	ResponseHeader *ResponseHeader    `json:"responseHeader"`
-	ResponseBody   *ResponseBody[Doc] `json:"response"`
-	FacetCounts    *FacetCounts       `json:"facet_counts,omitempty"`
+	ResponseHeader *ResponseHeader                `json:"responseHeader"`
+	ResponseBody   *ResponseBody[Doc]             `json:"response"`
+	FacetCounts    *FacetCounts                   `json:"facet_counts,omitempty"`
+	Highlighting   map[string]map[string][]string `json:"highlighting,omitempty"`
 }
 
 type ResponseHeader struct {
