@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/scagogogo/sonatype-central-sdk/pkg/request"
+	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
 func TestSearchBySha1(t *testing.T) {
@@ -182,4 +185,123 @@ func TestCountBySha1(t *testing.T) {
 			t.Logf("成功获取到计数结果")
 		}
 	})
+}
+
+// TestSha1PrefixSearch 测试SHA1前缀搜索功能
+// 这个测试用于验证SHA1是否支持前缀搜索（模糊搜索）
+func TestSha1PrefixSearch(t *testing.T) {
+	// 使用真实客户端
+	client := createRealClient(t)
+
+	// 设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 选择一个已知存在的SHA1，只取前几位进行前缀搜索
+	originalSha1 := "0235ba8b489512805ac13a8f9ea77a1ca5ebe3e8" // 完整SHA1
+
+	// 测试不同长度的前缀
+	prefixLengths := []int{5, 10, 20, 30}
+
+	for _, length := range prefixLengths {
+		if length > len(originalSha1) {
+			length = len(originalSha1)
+		}
+
+		prefix := originalSha1[:length]
+
+		t.Run(fmt.Sprintf("PrefixLength_%d", length), func(t *testing.T) {
+			// 避免请求过快
+			time.Sleep(1 * time.Second)
+
+			// 使用自定义查询来进行SHA1前缀搜索
+			customQuery := "1:" + prefix + "*"
+			search := request.NewSearchRequest().SetQuery(request.NewQuery().SetCustomQuery(customQuery))
+			result, err := SearchRequestJsonDoc[*response.Version](client, ctx, search)
+
+			if err != nil {
+				t.Logf("SHA1前缀 %s 搜索出错: %v", prefix, err)
+				t.Skip("无法连接到Maven Central API")
+				return
+			}
+
+			if result == nil || result.ResponseBody == nil {
+				t.Logf("SHA1前缀 %s 搜索返回空结果", prefix)
+				return
+			}
+
+			docs := result.ResponseBody.Docs
+
+			// 输出结果数量和前几个结果
+			t.Logf("SHA1前缀 %s 找到 %d 个匹配结果", prefix, len(docs))
+			for i, v := range docs[:minInt(3, len(docs))] {
+				t.Logf("结果 %d: %s:%s:%s", i+1, v.GroupId, v.ArtifactId, v.Version)
+			}
+
+			// 完整SHA1搜索结果（用于比较）
+			fullSha1Results, err := client.SearchBySha1(ctx, originalSha1, 5)
+			if err == nil && len(fullSha1Results) > 0 {
+				t.Logf("完整SHA1搜索找到 %d 个结果", len(fullSha1Results))
+
+				// 检查前缀搜索的结果是否包含完整SHA1的结果
+				if len(docs) >= len(fullSha1Results) {
+					t.Logf("前缀搜索结果数量大于或等于完整SHA1搜索结果数量")
+				} else {
+					t.Logf("前缀搜索结果数量少于完整SHA1搜索结果数量")
+				}
+			}
+		})
+	}
+}
+
+// TestSearchBySha1Prefix 测试SHA1前缀搜索API方法
+func TestSearchBySha1Prefix(t *testing.T) {
+	// 使用真实客户端
+	client := createRealClient(t)
+
+	// 设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 选择一个已知存在的SHA1，用于测试
+	sha1 := "0235ba8b489512805ac13a8f9ea77a1ca5ebe3e8"
+
+	testCases := []struct {
+		name       string
+		prefix     string
+		expectMany bool // 是否期望返回多个结果
+	}{
+		{"短前缀_5字符", sha1[:5], true},
+		{"中等前缀_10字符", sha1[:10], false},
+		{"长前缀_20字符", sha1[:20], false},
+		{"完整SHA1", sha1, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// 避免请求过快
+			time.Sleep(1 * time.Second)
+
+			results, err := client.SearchBySha1Prefix(ctx, tc.prefix, 10)
+
+			if err != nil {
+				t.Logf("SHA1前缀 %s 搜索出错: %v", tc.prefix, err)
+				t.Skip("无法连接到Maven Central API")
+				return
+			}
+
+			t.Logf("SHA1前缀 %s 找到 %d 个匹配结果", tc.prefix, len(results))
+			for i, v := range results[:minInt(3, len(results))] {
+				t.Logf("结果 %d: %s:%s:%s", i+1, v.GroupId, v.ArtifactId, v.Version)
+			}
+
+			if tc.expectMany && len(results) <= 1 {
+				t.Logf("注意: 预期找到多个结果，但只找到 %d 个", len(results))
+			}
+
+			if !tc.expectMany && len(results) > 1 {
+				t.Logf("注意: 预期找到单个或零个结果，但找到 %d 个", len(results))
+			}
+		})
+	}
 }

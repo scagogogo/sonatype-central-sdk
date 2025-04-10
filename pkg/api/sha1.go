@@ -108,3 +108,59 @@ func (c *Client) CountBySha1(ctx context.Context, sha1 string) (int, error) {
 	}
 	return result.ResponseBody.NumFound, nil
 }
+
+// SearchBySha1Prefix 使用SHA1前缀进行模糊搜索
+// 参数:
+//   - ctx: 上下文，用于控制请求的生命周期
+//   - sha1Prefix: SHA1哈希的前缀（可以是任意长度）
+//   - limit: 最大返回结果数，如果小于等于0则返回所有结果
+//
+// 返回:
+//   - []*response.Version: 与SHA1前缀匹配的版本列表
+//   - error: 如果搜索过程中发生错误
+func (c *Client) SearchBySha1Prefix(ctx context.Context, sha1Prefix string, limit int) ([]*response.Version, error) {
+	if len(sha1Prefix) == 0 {
+		return nil, errors.New("SHA1前缀不能为空")
+	}
+
+	if len(sha1Prefix) == 40 {
+		// 如果提供了完整的SHA1，使用精确搜索
+		return c.SearchBySha1(ctx, sha1Prefix, limit)
+	}
+
+	if limit <= 0 {
+		return c.IteratorBySha1Prefix(ctx, sha1Prefix).ToSlice()
+	}
+
+	// 使用自定义查询构建SHA1前缀搜索
+	customQuery := "1:" + sha1Prefix + "*"
+	search := request.NewSearchRequest().SetQuery(request.NewQuery().SetCustomQuery(customQuery)).SetLimit(limit)
+
+	result, err := SearchRequestJsonDoc[*response.Version](c, ctx, search)
+	if err != nil {
+		return nil, err
+	}
+	if result == nil || result.ResponseBody == nil {
+		return nil, errors.New("empty response body")
+	}
+	return result.ResponseBody.Docs, nil
+}
+
+// IteratorBySha1Prefix 使用SHA1前缀进行模糊搜索，返回迭代器
+// 参数:
+//   - ctx: 上下文，用于控制请求的生命周期
+//   - sha1Prefix: SHA1哈希的前缀（可以是任意长度）
+//
+// 返回:
+//   - *SearchIterator[*response.Version]: 搜索结果迭代器
+func (c *Client) IteratorBySha1Prefix(ctx context.Context, sha1Prefix string) *SearchIterator[*response.Version] {
+	if len(sha1Prefix) == 40 {
+		// 如果提供了完整的SHA1，使用精确搜索
+		return c.IteratorBySha1(ctx, sha1Prefix)
+	}
+
+	// 使用自定义查询构建SHA1前缀搜索
+	customQuery := "1:" + sha1Prefix + "*"
+	search := request.NewSearchRequest().SetQuery(request.NewQuery().SetCustomQuery(customQuery))
+	return NewSearchIterator[*response.Version](search).WithClient(c)
+}
