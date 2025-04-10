@@ -41,7 +41,15 @@ func TestSearchByTag(t *testing.T) {
 				}
 			}
 
-			assert.True(t, len(artifacts) >= 0) // 只确保API正常返回
+			// 确保至少找到了一些结果
+			assert.True(t, len(artifacts) > 0, "应该至少找到一些包含标签 %s 的结果", tag)
+
+			// 验证返回的结果是否有效
+			if len(artifacts) > 0 {
+				// 检查第一个结果是否具有有效的GroupId和ArtifactId
+				assert.NotEmpty(t, artifacts[0].GroupId, "结果的GroupId不应为空")
+				assert.NotEmpty(t, artifacts[0].ArtifactId, "结果的ArtifactId不应为空")
+			}
 		})
 	}
 }
@@ -81,6 +89,8 @@ func TestGetRelatedTags(t *testing.T) {
 				count++
 			}
 		}
+	} else {
+		t.Logf("注意: 没有找到与标签 %s 相关的标签，这可能是正常情况", tag)
 	}
 }
 
@@ -105,6 +115,9 @@ func TestTagRelatedMethods(t *testing.T) {
 				return
 			}
 			t.Logf("标签 %s 的构件数量: %d", tag, count)
+
+			// 确保返回了有效的计数
+			assert.Greater(t, count, 0, "标签 %s 应该至少有一些构件", tag)
 		}
 	})
 
@@ -119,8 +132,23 @@ func TestTagRelatedMethods(t *testing.T) {
 		}
 
 		t.Logf("标签前缀 %s 匹配了 %d 个结果", prefix, len(artifacts))
+		assert.Greater(t, len(artifacts), 0, "标签前缀 %s 应该至少匹配一些结果", prefix)
+
+		// 检查结果是否包含标签信息
+		hasResultsWithTags := false
 		for i, artifact := range artifacts {
 			t.Logf("结果 %d: %s:%s (标签: %v)", i+1, artifact.GroupId, artifact.ArtifactId, artifact.Tags)
+
+			// 检查是否至少有一个包含有效标签的结果
+			if len(artifact.Tags) > 0 {
+				hasResultsWithTags = true
+				t.Logf("找到包含标签的结果: %v", artifact.Tags)
+			}
+		}
+
+		// 不强制要求前缀搜索结果必须包含标签，但记录此情况
+		if !hasResultsWithTags {
+			t.Logf("注意: 所有搜索结果中都没有包含标签信息")
 		}
 	})
 
@@ -138,6 +166,15 @@ func TestTagRelatedMethods(t *testing.T) {
 		for i, suggestion := range suggestions {
 			t.Logf("建议 %d: %s", i+1, suggestion)
 		}
+
+		// 记录得到的建议数量
+		t.Logf("获取到 %d 个标签建议", len(suggestions))
+
+		// 不强制要求一定有建议，因为这取决于API的行为和数据状态
+		// 对于没有返回建议的情况，仅做记录而不判定为失败
+		if len(suggestions) == 0 {
+			t.Logf("注意: 没有找到与标签 %s 相关的建议，这可能是正常情况", baseTag)
+		}
 	})
 
 	// 测试 SearchByTagAndSortByPopularity
@@ -151,6 +188,24 @@ func TestTagRelatedMethods(t *testing.T) {
 		}
 
 		t.Logf("标签 %s 按流行度排序的前5个结果:", tag)
+		assert.Greater(t, len(artifacts), 0, "应该至少找到一些包含标签 %s 的结果", tag)
+
+		// 验证结果是否按照流行度排序
+		if len(artifacts) >= 2 {
+			// 确保结果至少包含版本计数信息
+			assert.GreaterOrEqual(t, artifacts[0].VersionCount, 0, "结果应该包含版本计数信息")
+
+			// 验证排序是否正确（应该按版本数量降序排列）
+			isCorrectlySorted := true
+			for i := 1; i < len(artifacts); i++ {
+				if artifacts[i-1].VersionCount < artifacts[i].VersionCount {
+					isCorrectlySorted = false
+					break
+				}
+			}
+			assert.True(t, isCorrectlySorted, "结果应该按流行度（版本数量）降序排序")
+		}
+
 		for i, artifact := range artifacts {
 			t.Logf("结果 %d: %s:%s (版本数: %d)", i+1, artifact.GroupId, artifact.ArtifactId, artifact.VersionCount)
 		}
@@ -166,9 +221,18 @@ func TestTagRelatedMethods(t *testing.T) {
 		}
 
 		t.Logf("标签趋势分析结果:")
+		assert.Greater(t, len(trends), 0, "应该至少返回一些标签的趋势分析结果")
+
 		for tag, trend := range trends {
 			t.Logf("标签: %s, 使用数量: %d, 活跃度: %.2f, 趋势: %s",
 				tag, trend.CurrentUsageCount, trend.ActivityScore, trend.Trend)
+
+			// 验证趋势对象是否包含有效数据
+			assert.NotEmpty(t, trend.Tag, "趋势对象的标签字段不应为空")
+			assert.Greater(t, trend.CurrentUsageCount, 0, "标签 %s 的使用数量应该大于0", tag)
+			assert.GreaterOrEqual(t, trend.ActivityScore, 0.0, "活跃度分数应该大于等于0")
+			assert.LessOrEqual(t, trend.ActivityScore, 1.0, "活跃度分数应该小于等于1")
+			assert.Contains(t, []string{"上升", "稳定", "下降"}, trend.Trend, "趋势应该是'上升'、'稳定'或'下降'之一")
 		}
 	})
 }
