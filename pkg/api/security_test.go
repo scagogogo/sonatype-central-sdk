@@ -2,10 +2,13 @@ package api
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
 // 将createRealClient函数内联到测试文件中
@@ -215,6 +218,30 @@ func TestSecurityDataStructures(t *testing.T) {
 		// 验证返回的漏洞信息
 		if len(details.Vulnerabilities) > 0 {
 			t.Logf("找到 %d 个漏洞", len(details.Vulnerabilities))
+
+			// 检查是否包含已知的Log4Shell漏洞（CVE-2021-44228）
+			foundLog4Shell := false
+			for _, vuln := range details.Vulnerabilities {
+				t.Logf("漏洞: %s (CVE: %s), 严重性: %s, 评分: %.1f",
+					vuln.Title, vuln.CVE, vuln.Severity, vuln.CvssScore)
+
+				if vuln.CVE == "CVE-2021-44228" {
+					foundLog4Shell = true
+					// 验证Log4Shell漏洞的详细信息
+					assert.Contains(t, strings.ToLower(vuln.Title), "log4j")
+					assert.Contains(t, []string{"CRITICAL", "HIGH"}, vuln.Severity)
+					assert.GreaterOrEqual(t, vuln.CvssScore, 9.0) // Log4Shell的CVSS评分至少为9.0
+				}
+			}
+
+			// Log4j-core 2.14.1应该包含Log4Shell漏洞
+			if groupId == "org.apache.logging.log4j" && artifactId == "log4j-core" && version == "2.14.1" {
+				assert.True(t, foundLog4Shell, "未找到预期的Log4Shell(CVE-2021-44228)漏洞")
+				if !foundLog4Shell {
+					t.Log("警告: 未在log4j-core中找到预期的Log4Shell漏洞，可能是API数据已更新")
+				}
+			}
+
 			// 检查第一个漏洞的结构
 			vuln := details.Vulnerabilities[0]
 			assert.NotEmpty(t, vuln.ID)
@@ -293,10 +320,65 @@ func TestSecurityEdgeCases(t *testing.T) {
 			assert.True(t, isImpacted)
 			assert.NotNil(t, vuln)
 			assert.Equal(t, cveId, vuln.CVE)
-			t.Logf("组件 %s:%s:%s 受到 %s 影响，严重性: %s",
-				knownGroup, knownArtifact, knownVersion, cveId, vuln.Severity)
+
+			// 详细验证Log4Shell漏洞信息
+			t.Logf("CVE影响检查 - 组件 %s:%s:%s 受到 %s 影响",
+				knownGroup, knownArtifact, knownVersion, cveId)
+			t.Logf("漏洞标题: %s", vuln.Title)
+			t.Logf("漏洞严重性: %s, CVSS评分: %.1f", vuln.Severity, vuln.CvssScore)
+			t.Logf("CVSS向量: %s", vuln.CvssVector)
+
+			// 验证漏洞详情
+			assert.Contains(t, strings.ToLower(vuln.Title), "log4j")
+			assert.Contains(t, []string{"CRITICAL", "HIGH"}, vuln.Severity)
+			assert.GreaterOrEqual(t, vuln.CvssScore, 9.0)
+			assert.NotEmpty(t, vuln.CvssVector)
+			assert.NotEmpty(t, vuln.Description)
+
+			// 如果有advisory链接，检查其格式
+			if vuln.Advisory != "" {
+				assert.True(t, strings.HasPrefix(vuln.Advisory, "http"))
+			}
 		} else {
-			t.Logf("组件未受影响或API响应有变化")
+			t.Logf("警告: 预期组件应受到CVE-2021-44228影响，但API返回未受影响")
+		}
+	}
+
+	// 4. 添加对特定版本的批量安全扫描测试
+	artifactRefs := []*response.ArtifactRef{
+		{GroupId: "org.apache.logging.log4j", ArtifactId: "log4j-core", Version: "2.14.1"},
+		{GroupId: "org.springframework", ArtifactId: "spring-core", Version: "5.3.10"},
+	}
+
+	scanResults, err := client.BatchSecurityScan(ctx, artifactRefs)
+	if err != nil {
+		t.Logf("跳过批量安全扫描测试: %v", err)
+	} else {
+		assert.NotNil(t, scanResults)
+		assert.Len(t, scanResults, len(artifactRefs))
+
+		for _, result := range scanResults {
+			t.Logf("扫描结果 - %s:%s:%s, 安全评级: %s",
+				result.GroupId, result.ArtifactId, result.Version,
+				result.SecurityRating.Severity)
+
+			// 检查log4j-core的扫描结果
+			if result.GroupId == "org.apache.logging.log4j" && result.ArtifactId == "log4j-core" {
+				assert.NotNil(t, result.SecurityRating)
+				assert.Greater(t, result.SecurityRating.Score, 7.0)
+				assert.Contains(t, []string{"CRITICAL", "HIGH"}, result.SecurityRating.Severity)
+				assert.GreaterOrEqual(t, result.SecurityRating.VulnCount, 1)
+
+				// 检查是否包含Log4Shell的CVE
+				foundCVE := false
+				for _, advisory := range result.SecurityRating.Advisories {
+					if advisory == "CVE-2021-44228" {
+						foundCVE = true
+						break
+					}
+				}
+				assert.True(t, foundCVE, "log4j-core的安全评分中应包含CVE-2021-44228")
+			}
 		}
 	}
 
