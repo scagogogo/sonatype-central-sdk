@@ -1,13 +1,17 @@
+# Go Tests 工作流
+# 
+# 该工作流在每次代码提交时自动运行单元测试、代码覆盖率分析和代码检查
+# 修改历史:
+# - 2025-04-14: 修改为在所有分支的每次提交时都运行测试，添加Go 1.21支持
+
 name: Go Tests
 
 on:
   push:
-    branches: [ main, master ]
     paths-ignore:
       - '**.md'
       - 'docs/**'
   pull_request:
-    branches: [ main, master ]
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -18,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.18', '1.19', '1.20']
+        go-version: ['1.18', '1.19', '1.20', '1.21']
     
     steps:
     - name: Check out code
@@ -81,6 +85,7 @@ jobs:
     name: Run Benchmarks
     runs-on: ubuntu-latest
     needs: test
+    # 保持基准测试只在主分支上运行，避免在每个提交上消耗过多资源
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     
     steps:
