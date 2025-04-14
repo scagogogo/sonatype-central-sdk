@@ -1,0 +1,36 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+# Your rule content
+
+- You can @ files here
+- You can use markdown but dont have to
+
+# 代码重构和结构调整规则
+
+## 包结构规范
+- 响应相关的结构体应该放在`response`包中
+- 请求相关的结构体应该放在`request`包中
+- 业务逻辑和客户端实现放在`api`包中
+
+## 避免常见错误
+- 避免导入循环：不要在`response`包中直接引用`api`包中的类型，考虑使用基本类型(如string)代替
+- 检查结构体重复定义：在创建新结构体前，使用grep搜索整个项目检查是否已存在
+- 使用唯一结构体：如`ArtifactRef`等通用结构体应只定义一次并被所有包共享
+
+## 代码修改最佳实践
+- 最小化变更：只修改必要的代码，不要重写没有问题的函数实现
+- 保持函数签名一致：修改类型定义后，确保所有使用该类型的函数签名也相应更新
+- 字段命名一致性：注意不同包之间字段命名风格(`GroupId`/`GroupID`)的统一
+
+## Go语言规范
+- 不支持三元运算符：使用if-else代替类似`condition ? value1 : value2`的表达式
+- 错误处理：保持错误类型的一致性，如HTTP错误应统一使用`response.HTTPError`
+
+## 修改后检查
+- 使用linter确认没有引入新的错误
+- 运行测试确保功能正常
+- 检查命名、注释和API一致性

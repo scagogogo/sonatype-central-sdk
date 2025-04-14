@@ -21,6 +21,37 @@ const (
 )
 
 // GetSecurityRating 获取制品的安全评分
+//
+// 此方法提供了一种获取指定制品版本安全评分的方式，返回包含安全评级和相关详情的安全评分信息。
+// 安全评分基于该制品版本已知的漏洞数量和严重性来计算，可用于评估使用该制品的潜在风险。
+//
+// 参数:
+//   - ctx: 上下文，用于控制请求的生命周期
+//   - groupId: Maven坐标中的组ID
+//   - artifactId: Maven坐标中的制品ID
+//   - version: 制品的版本号
+//
+// 返回:
+//   - *response.SecurityRating: 包含安全评级、评分和相关详情的安全评分信息
+//   - error: 如果获取安全评分失败，返回错误信息
+//
+// 例子:
+//
+//	// 初始化客户端
+//	client := sonatype.NewClient("https://repo1.maven.org/maven2")
+//
+//	// 获取指定制品版本的安全评分
+//	rating, err := client.GetSecurityRating(ctx, "org.apache.commons", "commons-lang3", "3.12.0")
+//	if err != nil {
+//	    log.Fatalf("获取安全评分失败: %v", err)
+//	}
+//
+//	// 使用安全评分信息
+//	fmt.Printf("安全评级: %s\n", rating.Level)
+//	fmt.Printf("安全评分: %.2f\n", rating.Score)
+//	if rating.Score > 7.0 {
+//	    fmt.Println("警告: 该制品存在高风险漏洞，建议升级或更换替代品")
+//	}
 func (c *Client) GetSecurityRating(ctx context.Context, groupId, artifactId, version string) (*response.SecurityRating, error) {
 	targetUrl := fmt.Sprintf("%s/api/security/rating/%s/%s/%s", c.baseURL, groupId, artifactId, version)
 	var securityRating response.SecurityRating
@@ -31,25 +62,56 @@ func (c *Client) GetSecurityRating(ctx context.Context, groupId, artifactId, ver
 	return &securityRating, nil
 }
 
-// SearchVulnerableArtifacts 搜索具有指定严重性级别或更高的漏洞的制品
-func (c *Client) SearchVulnerableArtifacts(ctx context.Context, minSeverity SecuritySeverity, limit int) ([]*response.Artifact, error) {
+// SearchVulnerableArtifacts 搜索Maven中央仓库中具有已知漏洞的构件。
+//
+// 该方法允许使用自定义查询来搜索具有安全漏洞的构件。通常，查询中应包含
+// 漏洞相关的条件，例如 "vulnerabilities.severity:[MODERATE TO CRITICAL]"
+// 来过滤特定严重性级别的漏洞。
+//
+// 参数:
+//   - ctx: 请求的上下文，用于控制请求的生命周期。
+//   - query: 搜索查询参数，可以指定过滤条件如漏洞级别、构件名称等。
+//
+// 返回:
+//   - *response.Response[response.ArtifactMetadata]: 包含搜索结果的响应对象。
+//   - error: 如果搜索失败，返回相应的错误。
+//
+// 示例:
+//
+//	client := api.NewClient(api.ClientOptions{})
+//
+//	// 创建一个查询，搜索具有严重或关键级别漏洞的Spring相关构件
+//	query := request.NewQuery().
+//		SetCustomQuery("vulnerabilities.severity:[HIGH TO CRITICAL]").
+//		SetArtifactId("spring")
+//
+//	// 执行搜索
+//	results, err := client.SearchVulnerableArtifacts(context.Background(), query)
+//	if err != nil {
+//		log.Fatalf("搜索失败: %v", err)
+//	}
+//
+//	// 处理结果
+//	fmt.Printf("找到 %d 个具有漏洞的构件\n", results.Response.NumFound)
+//	for _, artifact := range results.Response.Docs {
+//		fmt.Printf("构件 %s:%s 含有漏洞\n", artifact.GroupId, artifact.ArtifactId)
+//		// 可以进一步检查 artifact.Vulnerabilities 字段获取漏洞详情
+//	}
+func (c *Client) SearchVulnerableArtifacts(ctx context.Context, query *request.Query) (*response.Response[response.ArtifactMetadata], error) {
 	// 构建请求
-	vulnQuery := request.NewQuery().
-		SetCustomQuery("vulnerabilities.severity:" + string(minSeverity))
-
-	vulnRequest := request.NewSearchRequest().
-		SetQuery(vulnQuery).
+	// 使用传入的查询参数
+	searchRequest := request.NewSearchRequest().
+		SetQuery(query).
 		AddCustomParam("fl", "id,g,a,latestVersion,p,timestamp,versionCount,text,ec,vulnerabilities").
-		SetSort("vulnerabilities.severity", false). // 按严重性降序排序
-		SetLimit(limit)
+		SetSort("vulnerabilities.severity", false) // 按严重性降序排序
 
 	// 执行请求
-	result, err := SearchRequestJsonDoc[*response.Artifact](c, ctx, vulnRequest)
+	result, err := SearchRequestJsonDoc[response.ArtifactMetadata](c, ctx, searchRequest)
 	if err != nil {
 		return nil, err
 	}
 
-	return result.ResponseBody.Docs, nil
+	return result, nil
 }
 
 // GetVulnerabilityDetails 获取特定构件版本的漏洞详情
@@ -372,4 +434,3 @@ func (c *Client) FindSimilarVulnerableArtifacts(ctx context.Context, groupId, ar
 
 	return result.ResponseBody.Docs, nil
 }
-

@@ -8,6 +8,37 @@ import (
 	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
+// SearchBySha1 根据SHA1哈希值搜索匹配的构件版本
+//
+// 该方法用于在Maven Central仓库中搜索与指定SHA1哈希值匹配的所有构件版本。
+// SHA1哈希是Maven中常用的标识构件内容的唯一方式，可用于查找具体的JAR文件或其他构件。
+// 方法支持分页和非分页两种模式，当limit参数小于等于0时，会返回所有匹配结果。
+//
+// 参数:
+//   - ctx: 上下文，用于控制请求的超时和取消
+//   - sha1: 要搜索的SHA1哈希值(40个十六进制字符)
+//   - limit: 最大返回结果数量，如果小于等于0则返回所有结果
+//
+// 返回:
+//   - []*response.Version: 匹配的版本列表，包含详细的GAV坐标和下载信息
+//   - error: 如果请求或解析过程中发生错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 搜索特定SHA1的构件
+//	sha1 := "5d6d16e6fdb7f829aec1ff82a4f6324500e154d0"
+//	versions, err := client.SearchBySha1(ctx, sha1, 10)
+//	if err != nil {
+//	    log.Fatalf("搜索失败: %v", err)
+//	}
+//
+//	// 处理结果
+//	for _, version := range versions {
+//	    fmt.Printf("找到构件: %s:%s:%s\n", version.GroupId, version.ArtifactId, version.Version)
+//	}
 func (c *Client) SearchBySha1(ctx context.Context, sha1 string, limit int) ([]*response.Version, error) {
 	if limit <= 0 {
 		return c.IteratorBySha1(ctx, sha1).ToSlice()
@@ -24,6 +55,46 @@ func (c *Client) SearchBySha1(ctx context.Context, sha1 string, limit int) ([]*r
 	}
 }
 
+// IteratorBySha1 返回用于按SHA1哈希值搜索构件的迭代器
+//
+// 该方法创建一个迭代器，用于高效地处理匹配指定SHA1哈希值的所有构件版本。
+// 迭代器模式特别适合处理大量结果，因为它可以按需获取数据，避免一次性加载
+// 所有结果导致的内存压力。迭代器会自动处理分页，在遍历过程中按需从服务器
+// 获取下一页结果。
+//
+// 参数:
+//   - ctx: 上下文，用于控制请求的超时和取消
+//   - sha1: 要搜索的SHA1哈希值(40个十六进制字符)
+//
+// 返回:
+//   - *SearchIterator[*response.Version]: 搜索结果迭代器
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 创建迭代器
+//	iterator := client.IteratorBySha1(ctx, "5d6d16e6fdb7f829aec1ff82a4f6324500e154d0")
+//
+//	// 使用迭代器处理大量结果
+//	for {
+//	    hasNext, err := iterator.NextE()
+//	    if err != nil {
+//	        log.Fatalf("迭代过程出错: %v", err)
+//	    }
+//	    if !hasNext {
+//	        break // 迭代结束
+//	    }
+//
+//	    version, err := iterator.ValueE()
+//	    if err != nil {
+//	        log.Fatalf("获取版本信息出错: %v", err)
+//	    }
+//
+//	    fmt.Printf("处理版本: %s:%s:%s\n",
+//	        version.GroupId, version.ArtifactId, version.Version)
+//	}
 func (c *Client) IteratorBySha1(ctx context.Context, sha1 string) *SearchIterator[*response.Version] {
 	search := request.NewSearchRequest().SetQuery(request.NewQuery().SetSha1(sha1))
 	return NewSearchIterator[*response.Version](search).WithClient(c)

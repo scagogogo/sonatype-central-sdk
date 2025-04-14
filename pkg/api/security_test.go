@@ -2,12 +2,14 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/scagogogo/sonatype-central-sdk/pkg/request"
 	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
@@ -121,7 +123,8 @@ func TestSearchVulnerableArtifactsReal(t *testing.T) {
 	securitySeverityHigh := SecuritySeverity("HIGH")
 
 	// 搜索具有高风险漏洞的制品
-	artifacts, err := client.SearchVulnerableArtifacts(ctx, securitySeverityHigh, 5)
+	query := request.NewQuery().SetCustomQuery(fmt.Sprintf("vulnerabilities.severity:%s", securitySeverityHigh))
+	artifacts, err := client.SearchVulnerableArtifacts(ctx, query)
 	if err != nil {
 		t.Logf("跳过测试: %v", err)
 		t.Skip("无法连接到安全API")
@@ -130,9 +133,9 @@ func TestSearchVulnerableArtifactsReal(t *testing.T) {
 
 	assert.NotNil(t, artifacts)
 
-	if len(artifacts) > 0 {
-		t.Logf("找到 %d 个具有高风险漏洞的制品", len(artifacts))
-		for i, a := range artifacts {
+	if artifacts != nil && artifacts.ResponseBody != nil && artifacts.ResponseBody.NumFound > 0 {
+		t.Logf("找到 %d 个具有高风险漏洞的制品", artifacts.ResponseBody.NumFound)
+		for i, a := range artifacts.ResponseBody.Docs {
 			t.Logf("%d. %s:%s", i+1, a.GroupId, a.ArtifactId)
 		}
 	} else {
@@ -298,12 +301,16 @@ func TestSecurityEdgeCases(t *testing.T) {
 	}
 
 	// 2. 测试带有限制的漏洞搜索
-	artifacts, err := client.SearchVulnerableArtifacts(ctx, SecuritySeverity("HIGH"), 1)
+	queryWithLimit := request.NewQuery().SetCustomQuery(fmt.Sprintf("vulnerabilities.severity:%s", SecuritySeverity("HIGH")))
+	artifacts, err := client.SearchVulnerableArtifacts(ctx, queryWithLimit)
 	if err != nil {
 		t.Logf("跳过限制搜索测试: %v", err)
 	} else {
 		// 验证结果数量不超过限制
-		assert.LessOrEqual(t, len(artifacts), 1)
+		assert.NotNil(t, artifacts)
+		if artifacts != nil && artifacts.ResponseBody != nil {
+			assert.LessOrEqual(t, artifacts.ResponseBody.NumFound, int64(1))
+		}
 	}
 
 	// 3. 测试CVE影响检查
