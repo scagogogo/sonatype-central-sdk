@@ -12,7 +12,37 @@ import (
 	"github.com/scagogogo/sonatype-central-sdk/pkg/response"
 )
 
-// SearchByArtifactId 根据ArtifactId列出这个组下面的artifact
+// SearchByArtifactId 根据ArtifactId搜索制品
+//
+// 该方法提供按照ArtifactId搜索Maven制品的功能，可以获取所有匹配指定ArtifactId的制品列表。
+// 当需要查找特定名称的制品，但不确定其所属的组(GroupId)时，此方法特别有用。
+// 搜索结果会返回所有包含此ArtifactId的制品，可能来自不同的组织或项目。
+//
+// 参数:
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - artifactId: 要搜索的制品ID，如"guava"、"junit"等
+//   - limit: 最大返回结果数量，如果小于等于0则返回所有结果
+//
+// 返回:
+//   - []*response.Artifact: 匹配制品的列表
+//   - error: 搜索过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 搜索所有与"log4j"相关的制品，限制返回前10个结果
+//	artifacts, err := client.SearchByArtifactId(ctx, "log4j", 10)
+//	if err != nil {
+//	    log.Fatalf("搜索失败: %v", err)
+//	}
+//
+//	// 处理搜索结果
+//	fmt.Printf("找到 %d 个结果\n", len(artifacts))
+//	for _, artifact := range artifacts {
+//	    fmt.Printf("%s:%s:%s\n", artifact.GroupId, artifact.ArtifactId, artifact.LatestVersion)
+//	}
 func (c *Client) SearchByArtifactId(ctx context.Context, artifactId string, limit int) ([]*response.Artifact, error) {
 	if limit <= 0 {
 		return c.IteratorByArtifactId(ctx, artifactId).ToSlice()
@@ -29,21 +59,78 @@ func (c *Client) SearchByArtifactId(ctx context.Context, artifactId string, limi
 	}
 }
 
+// IteratorByArtifactId 根据制品ID获取制品迭代器
+//
+// 该方法提供了一个迭代器，用于高效地分页获取并处理所有与指定ArtifactId匹配的制品。
+// 当可能的搜索结果较大或需要批量处理时，迭代器模式比一次性获取所有结果更高效，
+// 可以减少内存占用并提高应用响应性。
+//
+// 参数:
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - artifactId: 要搜索的制品ID，如"spring-core"
+//
+// 返回:
+//   - *SearchIterator[*response.Artifact]: 搜索结果的迭代器，可用于逐页获取结果
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 创建迭代器
+//	iterator := client.IteratorByArtifactId(ctx, "guava")
+//
+//	// 设置每页大小
+//	iterator.SetPageSize(20)
+//
+//	// 使用迭代器处理所有结果
+//	for iterator.HasNext() {
+//	    artifacts, err := iterator.Next()
+//	    if err != nil {
+//	        log.Fatalf("获取下一批结果失败: %v", err)
+//	    }
+//
+//	    for _, artifact := range artifacts {
+//	        fmt.Printf("%s:%s:%s\n", artifact.GroupId, artifact.ArtifactId, artifact.LatestVersion)
+//	    }
+//	}
 func (c *Client) IteratorByArtifactId(ctx context.Context, artifactId string) *SearchIterator[*response.Artifact] {
 	search := request.NewSearchRequest().SetQuery(request.NewQuery().SetArtifactId(artifactId))
 	return NewSearchIterator[*response.Artifact](search).WithClient(c)
 }
 
-// SearchByGroupAndArtifactId 根据组ID和制品ID精确搜索制品
+// SearchByGroupAndArtifactId 根据GroupId和ArtifactId搜索制品
+//
+// 该方法提供更精确的搜索功能，通过同时指定GroupId和ArtifactId来查找特定的Maven制品。
+// 与仅使用ArtifactId搜索相比，此方法可以更准确地定位到特定组织或项目的制品。
+// 搜索结果将只包含同时匹配指定GroupId和ArtifactId的制品。
+//
 // 参数:
-//   - ctx: 上下文
-//   - groupId: 组ID
-//   - artifactId: 制品ID
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - groupId: 要搜索的组ID，如"org.apache.logging.log4j"
+//   - artifactId: 要搜索的制品ID，如"log4j-core"
 //   - limit: 最大返回结果数量，如果小于等于0则返回所有结果
 //
 // 返回:
-//   - 制品列表
-//   - 错误信息
+//   - []*response.Artifact: 匹配制品的列表
+//   - error: 搜索过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 搜索Apache Commons Lang库
+//	artifacts, err := client.SearchByGroupAndArtifactId(ctx, "org.apache.commons", "commons-lang3", 5)
+//	if err != nil {
+//	    log.Fatalf("搜索失败: %v", err)
+//	}
+//
+//	// 输出搜索结果
+//	fmt.Printf("找到 %d 个制品:\n", len(artifacts))
+//	for _, artifact := range artifacts {
+//	    fmt.Printf("%s:%s:%s\n", artifact.GroupId, artifact.ArtifactId, artifact.LatestVersion)
+//	}
 func (c *Client) SearchByGroupAndArtifactId(ctx context.Context, groupId, artifactId string, limit int) ([]*response.Artifact, error) {
 	if limit <= 0 {
 		return c.IteratorByGroupAndArtifactId(ctx, groupId, artifactId).ToSlice()
@@ -62,6 +149,41 @@ func (c *Client) SearchByGroupAndArtifactId(ctx context.Context, groupId, artifa
 }
 
 // IteratorByGroupAndArtifactId 根据组ID和制品ID获取制品迭代器
+//
+// 该方法提供了一个强大的迭代器，用于高效分页处理根据GroupId和ArtifactId查询的大量搜索结果。
+// 当可能返回的结果集较大或需要批量处理时，迭代器模式比一次性加载所有结果更高效，
+// 可以有效控制内存使用并提高应用程序响应性。
+//
+// 参数:
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - groupId: 要搜索的组ID，如"org.apache.commons"
+//   - artifactId: 要搜索的制品ID，如"commons-lang3"
+//
+// 返回:
+//   - *SearchIterator[*response.Artifact]: 搜索结果的迭代器，可用于逐页获取搜索结果
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 创建迭代器
+//	iterator := client.IteratorByGroupAndArtifactId(ctx, "org.apache.commons", "commons-lang3")
+//
+//	// 设置每页大小并连接到客户端
+//	iterator.SetPageSize(20)
+//
+//	// 使用迭代器处理所有结果
+//	for iterator.HasNext() {
+//	    artifacts, err := iterator.Next()
+//	    if err != nil {
+//	        log.Fatalf("获取下一批结果失败: %v", err)
+//	    }
+//
+//	    for _, artifact := range artifacts {
+//	        fmt.Printf("%s:%s:%s\n", artifact.GroupId, artifact.ArtifactId, artifact.LatestVersion)
+//	    }
+//	}
 func (c *Client) IteratorByGroupAndArtifactId(ctx context.Context, groupId, artifactId string) *SearchIterator[*response.Artifact] {
 	query := request.NewQuery().SetGroupId(groupId).SetArtifactId(artifactId)
 	search := request.NewSearchRequest().SetQuery(query)
@@ -69,16 +191,42 @@ func (c *Client) IteratorByGroupAndArtifactId(ctx context.Context, groupId, arti
 }
 
 // GetArtifactDetails 获取制品的详细信息
-// 如果提供了版本号，则获取特定版本的详情；否则获取最新版本的详情
+//
+// 该方法用于获取指定GroupId和ArtifactId的制品的详细信息，包括所有可用版本、制品的描述、许可证信息、
+// 使用统计数据等元数据。它为开发者提供了对特定制品的全面了解，有助于评估制品的质量、流行度和适用性。
+//
 // 参数:
-//   - ctx: 上下文
-//   - groupId: 组ID
-//   - artifactId: 制品ID
-//   - version: 版本号（可选，如果为空则使用最新版本）
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - groupId: 要查询的制品的组ID，如"org.springframework"
+//   - artifactId: 要查询的制品ID，如"spring-core"
+//   - version: 制品版本，如为空则使用最新版本
 //
 // 返回:
-//   - 制品详情
-//   - 错误信息
+//   - *response.ArtifactMetadata: 包含制品详细信息的对象
+//   - error: 获取详情过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 获取Spring Framework Core的详细信息
+//	details, err := client.GetArtifactDetails(ctx, "org.springframework", "spring-core", "")
+//	if err != nil {
+//	    log.Fatalf("获取制品详情失败: %v", err)
+//	}
+//
+//	// 输出制品信息
+//	fmt.Printf("制品: %s:%s\n", details.GroupId, details.ArtifactId)
+//	fmt.Printf("最新版本: %s\n", details.LatestVersion)
+//	fmt.Printf("发布时间: %s\n", details.LastUpdated)
+//	fmt.Printf("打包类型: %s\n", details.Packaging)
+//
+//	// 查看依赖项
+//	fmt.Printf("依赖项数量: %d\n", len(details.Dependencies))
+//	for i, dep := range details.Dependencies {
+//	    fmt.Printf("  %d. %s:%s:%s\n", i+1, dep.GroupId, dep.ArtifactId, dep.Version)
+//	}
 func (c *Client) GetArtifactDetails(ctx context.Context, groupId, artifactId, version string) (*response.ArtifactMetadata, error) {
 	// 先获取基本信息
 	artifacts, err := c.SearchByGroupAndArtifactId(ctx, groupId, artifactId, 1)
@@ -102,13 +250,37 @@ func (c *Client) GetArtifactDetails(ctx context.Context, groupId, artifactId, ve
 }
 
 // SearchPopularArtifacts 搜索热门制品
+//
+// 该方法提供了搜索当前流行或广泛使用的Maven制品的功能。搜索结果按照制品的流行度指标
+// （如版本数量、使用统计等）降序排序，便于开发者快速发现和使用社区中最受欢迎的库和工具。
+// 这对于寻找某类功能的最佳实现或评估不同制品的活跃度和社区支持情况非常有用。
+//
 // 参数:
-//   - ctx: 上下文
-//   - limit: 最大返回结果数量
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - limit: 最大返回结果数量，控制返回的制品数
 //
 // 返回:
-//   - 制品列表，按流行度排序
-//   - 错误信息
+//   - []*response.Artifact: 热门制品列表，按流行度降序排序
+//   - error: 搜索过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 搜索最热门的20个制品
+//	artifacts, err := client.SearchPopularArtifacts(ctx, 20)
+//	if err != nil {
+//	    log.Fatalf("搜索热门制品失败: %v", err)
+//	}
+//
+//	// 输出热门制品
+//	fmt.Println("Maven仓库中最热门的制品:")
+//	for i, artifact := range artifacts {
+//	    fmt.Printf("%d. %s:%s:%s (下载量: %d)\n",
+//	        i+1, artifact.GroupId, artifact.ArtifactId, artifact.LatestVersion,
+//	        artifact.DownloadCount)
+//	}
 func (c *Client) SearchPopularArtifacts(ctx context.Context, limit int) ([]*response.Artifact, error) {
 	// 创建搜索请求，按版本数量和时间戳排序
 	search := request.NewSearchRequest().
@@ -129,14 +301,37 @@ func (c *Client) SearchPopularArtifacts(ctx context.Context, limit int) ([]*resp
 }
 
 // SearchArtifactsByTag 根据标签搜索制品
+//
+// 该方法提供根据标签(Tag)搜索Maven制品的功能。标签通常用于对制品进行分类和归类，
+// 帮助开发者快速找到特定领域或特定用途的制品。例如，可以搜索标记为"http-client"、
+// "database"或"logging"等标签的所有制品，更有针对性地发现满足特定需求的库。
+//
 // 参数:
-//   - ctx: 上下文
-//   - tag: 标签
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - tag: 要搜索的标签名称，如"json"、"http"、"database"等
 //   - limit: 最大返回结果数量，如果小于等于0则返回所有结果
 //
 // 返回:
-//   - 制品列表
-//   - 错误信息
+//   - []*response.Artifact: 具有指定标签的制品列表
+//   - error: 搜索过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 搜索所有带"json"标签的制品
+//	artifacts, err := client.SearchArtifactsByTag(ctx, "json", 20)
+//	if err != nil {
+//	    log.Fatalf("搜索失败: %v", err)
+//	}
+//
+//	// 输出搜索结果
+//	fmt.Printf("找到 %d 个JSON相关的制品:\n", len(artifacts))
+//	for i, artifact := range artifacts {
+//	    fmt.Printf("%d. %s:%s:%s\n",
+//	        i+1, artifact.GroupId, artifact.ArtifactId, artifact.LatestVersion)
+//	}
 func (c *Client) SearchArtifactsByTag(ctx context.Context, tag string, limit int) ([]*response.Artifact, error) {
 	if limit <= 0 {
 		return c.IteratorByTag(ctx, tag).ToSlice()
@@ -155,16 +350,47 @@ func (c *Client) SearchArtifactsByTag(ctx context.Context, tag string, limit int
 }
 
 // SearchArtifactsWithFacets 搜索制品并返回聚合结果
+//
+// 该方法提供了高级搜索功能，不仅返回匹配的制品列表，还返回聚合统计信息。
+// 聚合功能可以帮助用户快速了解搜索结果在特定维度（如组ID、打包类型、许可证等）的分布情况。
+// 这对于数据分析、趋势识别或结果过滤非常有用，可以帮助开发者更好地理解搜索结果的整体情况。
+//
 // 参数:
-//   - ctx: 上下文
-//   - searchText: 搜索文本
-//   - facetFields: 要聚合的字段，如"g"表示按组ID聚合
-//   - limit: 最大返回结果数量
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - searchText: 搜索文本，支持通配符和高级搜索语法
+//   - facetFields: 要聚合的字段列表，如["g"(组ID), "p"(打包类型), "l"(许可证)]
+//   - limit: 最大返回结果数量，控制返回的制品数
 //
 // 返回:
-//   - 制品列表
-//   - 聚合结果
-//   - 错误信息
+//   - []*response.Artifact: 匹配搜索条件的制品列表
+//   - *response.FacetResults: 聚合结果，包含按指定字段分组的统计信息
+//   - error: 搜索过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 搜索"logger"相关制品，并按组ID和打包类型聚合
+//	artifacts, facets, err := client.SearchArtifactsWithFacets(ctx, "logger", []string{"g", "p"}, 50)
+//	if err != nil {
+//	    log.Fatalf("搜索失败: %v", err)
+//	}
+//
+//	// 输出搜索结果
+//	fmt.Printf("找到 %d 个结果\n", len(artifacts))
+//
+//	// 分析组ID分布
+//	fmt.Println("\n按组织分布:")
+//	for _, facet := range facets.Counts["g"] {
+//	    fmt.Printf("%s: %d 个制品\n", facet.Value, facet.Count)
+//	}
+//
+//	// 分析打包类型分布
+//	fmt.Println("\n按打包类型分布:")
+//	for _, facet := range facets.Counts["p"] {
+//	    fmt.Printf("%s: %d 个制品\n", facet.Value, facet.Count)
+//	}
 func (c *Client) SearchArtifactsWithFacets(ctx context.Context, searchText string, facetFields []string, limit int) ([]*response.Artifact, *response.FacetResults, error) {
 	// 创建搜索请求
 	query := request.NewQuery().SetText(searchText)
@@ -224,15 +450,49 @@ type ArtifactDependencyInfo struct {
 }
 
 // GetArtifactDependencies 获取制品的依赖关系
+//
+// 该方法用于获取指定Maven制品的完整依赖关系信息，包括直接依赖项、传递依赖项和可选依赖项。
+// 依赖关系分析对于项目依赖管理、冲突检测、安全审计和兼容性评估至关重要。通过此方法，开发者
+// 可以全面了解制品的依赖结构，有助于做出更明智的集成决策。
+//
 // 参数:
-//   - ctx: 上下文
-//   - groupId: 组ID
-//   - artifactId: 制品ID
-//   - version: 版本号
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - groupId: 要分析的制品的组ID，如"org.springframework"
+//   - artifactId: 要分析的制品ID，如"spring-core"
+//   - version: 要分析的制品版本，如"5.3.25"
 //
 // 返回:
-//   - 制品依赖关系信息
-//   - 错误信息
+//   - *ArtifactDependencyInfo: 包含分类依赖关系的对象
+//   - error: 获取依赖关系过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 获取Spring Core 5.3.25的依赖关系
+//	dependencies, err := client.GetArtifactDependencies(ctx, "org.springframework", "spring-core", "5.3.25")
+//	if err != nil {
+//	    log.Fatalf("获取依赖关系失败: %v", err)
+//	}
+//
+//	// 输出直接依赖项
+//	fmt.Printf("直接依赖项 (%d):\n", len(dependencies.DirectDependencies))
+//	for i, dep := range dependencies.DirectDependencies {
+//	    fmt.Printf("  %d. %s:%s:%s\n", i+1, dep.GroupId, dep.ArtifactId, dep.Version)
+//	}
+//
+//	// 输出可选依赖项
+//	fmt.Printf("\n可选依赖项 (%d):\n", len(dependencies.OptionalDependencies))
+//	for i, dep := range dependencies.OptionalDependencies {
+//	    fmt.Printf("  %d. %s:%s:%s\n", i+1, dep.GroupId, dep.ArtifactId, dep.Version)
+//	}
+//
+//	// 输出传递依赖项
+//	fmt.Printf("\n传递依赖项 (%d):\n", len(dependencies.TransitiveDependencies))
+//	for i, dep := range dependencies.TransitiveDependencies {
+//	    fmt.Printf("  %d. %s:%s:%s\n", i+1, dep.GroupId, dep.ArtifactId, dep.Version)
+//	}
 func (c *Client) GetArtifactDependencies(ctx context.Context, groupId, artifactId, version string) (*ArtifactDependencyInfo, error) {
 	// 获取制品元数据
 	metadata, err := c.GetArtifactMetadata(ctx, groupId, artifactId, version)
@@ -274,15 +534,47 @@ type ArtifactUsage struct {
 }
 
 // GetArtifactUsage 获取制品的使用情况
+//
+// 该方法用于分析指定Maven制品被其他项目使用的情况，包括总使用数量、主要使用者列表和按组分类的使用情况。
+// 通过这些信息，开发者可以评估制品的流行度和影响力，了解主要的使用者是哪些项目或组织，有助于做出
+// 关于API稳定性、向后兼容性和支持策略等方面的决策。
+//
 // 参数:
-//   - ctx: 上下文
-//   - groupId: 组ID
-//   - artifactId: 制品ID
-//   - limit: 返回的顶级使用者数量
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - groupId: 要分析的制品的组ID，如"com.google.guava"
+//   - artifactId: 要分析的制品ID，如"guava"
+//   - version: 要分析的制品版本，如为空则分析所有版本
+//   - limit: 返回的顶级使用者数量，控制结果列表大小
 //
 // 返回:
-//   - 制品使用情况
-//   - 错误信息
+//   - *ArtifactUsage: 包含制品使用情况的详细信息
+//   - error: 获取使用情况过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 获取Guava库的使用情况，返回前20个使用者
+//	usage, err := client.GetArtifactUsage(ctx, "com.google.guava", "guava", "", 20)
+//	if err != nil {
+//	    log.Fatalf("获取使用情况失败: %v", err)
+//	}
+//
+//	// 输出总使用情况
+//	fmt.Printf("Guava库被%d个项目引用\n", usage.TotalUsageCount)
+//
+//	// 输出主要使用者
+//	fmt.Println("\n主要使用者:")
+//	for i, user := range usage.TopUsers {
+//	    fmt.Printf("  %d. %s:%s:%s\n", i+1, user.GroupId, user.ArtifactId, user.LatestVersion)
+//	}
+//
+//	// 输出按组分类的使用情况
+//	fmt.Println("\n按组织分类的使用情况:")
+//	for groupId, count := range usage.UsageByGroup {
+//	    fmt.Printf("  %s: %d个项目\n", groupId, count)
+//	}
 func (c *Client) GetArtifactUsage(ctx context.Context, groupId, artifactId, version string, limit int) (*ArtifactUsage, error) {
 	// 构建搜索查询
 	dependencyQuery := fmt.Sprintf("d:%s:%s", groupId, artifactId)
@@ -339,16 +631,47 @@ type ArtifactComparisonResult struct {
 }
 
 // CompareArtifacts 比较两个制品
+//
+// 该方法用于对比两个Maven制品的关键指标，包括版本数量、更新频率、活跃度和流行度等。
+// 这种比较对于在多个相似库之间做选择时非常有用，可以帮助开发者评估哪个制品更活跃、
+// 更受欢迎，或者哪个制品有更好的维护和社区支持。
+//
 // 参数:
-//   - ctx: 上下文
-//   - groupId1: 第一个制品的组ID
-//   - artifactId1: 第一个制品的制品ID
-//   - groupId2: 第二个制品的组ID
-//   - artifactId2: 第二个制品的制品ID
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - groupId1: 第一个制品的组ID，如"org.apache.logging.log4j"
+//   - artifactId1: 第一个制品的制品ID，如"log4j-core"
+//   - groupId2: 第二个制品的组ID，如"ch.qos.logback"
+//   - artifactId2: 第二个制品的制品ID，如"logback-classic"
 //
 // 返回:
-//   - 比较结果
-//   - 错误信息
+//   - *ArtifactComparisonResult: 包含两个制品比较结果的详细信息
+//   - error: 比较过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 比较两个日志框架：Log4j2和Logback
+//	comparison, err := client.CompareArtifacts(ctx,
+//	    "org.apache.logging.log4j", "log4j-core",
+//	    "ch.qos.logback", "logback-classic")
+//	if err != nil {
+//	    log.Fatalf("比较制品失败: %v", err)
+//	}
+//
+//	// 输出基本信息
+//	fmt.Printf("比较 %s:%s 和 %s:%s\n",
+//	    comparison.Artifact1.GroupId, comparison.Artifact1.ArtifactId,
+//	    comparison.Artifact2.GroupId, comparison.Artifact2.ArtifactId)
+//
+//	// 输出版本信息
+//	fmt.Printf("\n版本数量差异: %d\n", comparison.VersionCountDiff)
+//	fmt.Printf("更新时间差异: %d天\n", comparison.UpdateTimeDiffDays)
+//
+//	// 输出活跃度和流行度比较
+//	fmt.Printf("\n最活跃的制品: %s\n", comparison.MostActive)
+//	fmt.Printf("最流行的制品: %s\n", comparison.MostPopular)
 func (c *Client) CompareArtifacts(ctx context.Context, groupId1, artifactId1, groupId2, artifactId2 string) (*ArtifactComparisonResult, error) {
 	// 获取第一个制品
 	artifacts1, err := c.SearchByGroupAndArtifactId(ctx, groupId1, artifactId1, 1)
@@ -424,15 +747,40 @@ func (c *Client) CompareArtifacts(ctx context.Context, groupId1, artifactId1, gr
 }
 
 // SearchArtifactsByDateRange 根据日期范围搜索制品
+//
+// 该方法提供了按发布或更新时间范围搜索Maven制品的功能。这对于发现特定时间段内
+// 发布的新制品、监控活跃度变化趋势，或查找在特定时间点之后更新的制品特别有用。
+// 结果默认按时间戳降序排序，便于快速查看最近更新的制品。
+//
 // 参数:
-//   - ctx: 上下文
-//   - startDate: 开始日期，格式为YYYY-MM-DD
-//   - endDate: 结束日期，格式为YYYY-MM-DD
-//   - limit: 最大返回结果数量
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - startDate: 开始日期，格式为YYYY-MM-DD，如"2023-01-01"
+//   - endDate: 结束日期，格式为YYYY-MM-DD，如"2023-12-31"
+//   - limit: 最大返回结果数量，控制返回的制品数
 //
 // 返回:
-//   - 制品列表
-//   - 错误信息
+//   - []*response.Artifact: 在指定日期范围内发布或更新的制品列表
+//   - error: 搜索过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 搜索2023年发布的制品，限制返回50个结果
+//	artifacts, err := client.SearchArtifactsByDateRange(ctx, "2023-01-01", "2023-12-31", 50)
+//	if err != nil {
+//	    log.Fatalf("搜索失败: %v", err)
+//	}
+//
+//	// 输出搜索结果
+//	fmt.Printf("在2023年发布的制品 (%d个):\n", len(artifacts))
+//	for i, artifact := range artifacts {
+//	    // 将时间戳转换为可读格式
+//	    updateTime := time.Unix(artifact.Timestamp/1000, 0).Format("2006-01-02")
+//	    fmt.Printf("%d. %s:%s:%s (发布于: %s)\n",
+//	        i+1, artifact.GroupId, artifact.ArtifactId, artifact.LatestVersion, updateTime)
+//	}
 func (c *Client) SearchArtifactsByDateRange(ctx context.Context, startDate, endDate string, limit int) ([]*response.Artifact, error) {
 	// 构建日期范围查询
 	dateQuery := fmt.Sprintf("timestamp:[%s TO %s]", startDate, endDate)
@@ -458,15 +806,42 @@ func (c *Client) SearchArtifactsByDateRange(ctx context.Context, startDate, endD
 }
 
 // SuggestSimilarArtifacts 根据指定制品推荐相似制品
+//
+// 该方法提供基于给定制品的相似度推荐功能，可以帮助开发者发现功能相似或相关的其他Maven制品。
+// 推荐算法基于标签匹配、文本相似度和制品描述等多个维度，尝试找出最相关的替代方案或补充工具。
+// 这对于探索替代库、查找功能互补的工具或解决制品维护问题（如已弃用或不再维护的情况）特别有价值。
+//
 // 参数:
-//   - ctx: 上下文
-//   - groupId: 组ID
-//   - artifactId: 制品ID
-//   - limit: 最大返回结果数量
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - groupId: 基准制品的组ID，如"com.fasterxml.jackson.core"
+//   - artifactId: 基准制品的制品ID，如"jackson-databind"
+//   - limit: 最大返回结果数量，控制返回的推荐制品数
 //
 // 返回:
-//   - 推荐的相似制品列表
-//   - 错误信息
+//   - []*response.Artifact: 与基准制品相似的推荐制品列表
+//   - error: 推荐过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 查找与Jackson Databind相似的制品
+//	similarArtifacts, err := client.SuggestSimilarArtifacts(ctx,
+//	    "com.fasterxml.jackson.core", "jackson-databind", 10)
+//	if err != nil {
+//	    log.Fatalf("查找相似制品失败: %v", err)
+//	}
+//
+//	// 输出推荐结果
+//	fmt.Printf("与Jackson Databind相似的制品 (%d个):\n", len(similarArtifacts))
+//	for i, artifact := range similarArtifacts {
+//	    fmt.Printf("%d. %s:%s:%s\n",
+//	        i+1, artifact.GroupId, artifact.ArtifactId, artifact.LatestVersion)
+//	    if len(artifact.Tags) > 0 {
+//	        fmt.Printf("   标签: %s\n", strings.Join(artifact.Tags, ", "))
+//	    }
+//	}
 func (c *Client) SuggestSimilarArtifacts(ctx context.Context, groupId, artifactId string, limit int) ([]*response.Artifact, error) {
 	// 步骤1: 获取目标制品的详情
 	artifacts, err := c.SearchByGroupAndArtifactId(ctx, groupId, artifactId, 1)
@@ -563,14 +938,45 @@ type ArtifactStats struct {
 }
 
 // GetArtifactStats 获取制品的统计信息
+//
+// 该方法用于计算和返回指定Maven制品的综合统计指标，包括版本数量、更新历史、活跃度和流行度等。
+// 这些统计数据对于评估制品的质量、稳定性、维护状况和社区支持程度非常有用，可以帮助开发者在
+// 选择依赖项时做出更明智的决策。
+//
 // 参数:
-//   - ctx: 上下文
-//   - groupId: 组ID
-//   - artifactId: 制品ID
+//   - ctx: 上下文对象，用于控制请求的超时和取消
+//   - groupId: 要分析的制品的组ID，如"org.apache.commons"
+//   - artifactId: 要分析的制品ID，如"commons-lang3"
 //
 // 返回:
-//   - 制品统计信息
-//   - 错误信息
+//   - *ArtifactStats: 包含制品统计信息的详细对象
+//   - error: 获取统计信息过程中发生的错误
+//
+// 使用示例:
+//
+//	client := api.NewClient()
+//	ctx := context.Background()
+//
+//	// 获取Apache Commons Lang3的统计信息
+//	stats, err := client.GetArtifactStats(ctx, "org.apache.commons", "commons-lang3")
+//	if err != nil {
+//	    log.Fatalf("获取统计信息失败: %v", err)
+//	}
+//
+//	// 输出基本信息
+//	fmt.Printf("制品: %s:%s\n", stats.GroupId, stats.ArtifactId)
+//	fmt.Printf("版本总数: %d\n", stats.TotalVersions)
+//
+//	// 输出时间信息
+//	firstDate := time.Unix(stats.FirstVersionDate/1000, 0).Format("2006-01-02")
+//	latestDate := time.Unix(stats.LatestVersionDate/1000, 0).Format("2006-01-02")
+//	fmt.Printf("首个版本发布于: %s\n", firstDate)
+//	fmt.Printf("最新版本发布于: %s\n", latestDate)
+//	fmt.Printf("上次更新距今: %d天\n", stats.DaysSinceLastUpdate)
+//
+//	// 输出活跃度和流行度
+//	fmt.Printf("更新频率: %.2f版本/月\n", stats.UpdateFrequency)
+//	fmt.Printf("被引用次数: %d\n", stats.UsageCount)
 func (c *Client) GetArtifactStats(ctx context.Context, groupId, artifactId string) (*ArtifactStats, error) {
 	// 获取制品基本信息
 	artifacts, err := c.SearchByGroupAndArtifactId(ctx, groupId, artifactId, 1)
