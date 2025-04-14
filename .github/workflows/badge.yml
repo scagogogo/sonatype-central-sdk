@@ -6,6 +6,10 @@ on:
     types:
       - completed
 
+# 添加权限配置
+permissions:
+  contents: write
+
 jobs:
   update-badges:
     name: Update Status Badges
@@ -17,7 +21,7 @@ jobs:
         uses: actions/checkout@v3
       
       - name: Generate Build Status Badge
-        uses: emibcn/badge-action@v1
+        uses: emibcn/badge-action@v2.0.0  # 使用最新版本
         with:
           label: 'build'
           status: ${{ github.event.workflow_run.conclusion }}

@@ -9,6 +9,10 @@ on:
     tags:
       - 'v*'
 
+# 添加权限配置
+permissions:
+  contents: write
+
 jobs:
   godoc:
     name: Generate Go Docs
