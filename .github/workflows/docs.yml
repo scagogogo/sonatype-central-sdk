@@ -24,12 +24,17 @@ jobs:
         go-version: '1.20'
         cache: true
 
-    - name: Install godoc
-      run: go install golang.org/x/tools/cmd/godoc@latest
+    - name: Install documentation tools
+      run: |
+        # 安装pkgsite工具，这是官方推荐的替代godoc的工具
+        go install golang.org/x/pkgsite/cmd/pkgsite@latest
+        # 确保go doc命令可用（这是Go内置的）
+        go version
 
     - name: Generate documentation
       run: |
         mkdir -p docs/api
+        # 使用内置的go doc命令生成文档
         go doc -all ./pkg/api > docs/api/api-reference.txt
         go doc -all ./pkg/request > docs/api/request-reference.txt
         go doc -all ./pkg/response > docs/api/response-reference.txt
